@@ -35,20 +35,6 @@
         border-color: #4a90a4;
         outline: none;
       }
-      #user-menu {
-        font-size: 13px;
-      }
-      #user-menu .username {
-        font-weight: bold;
-        margin-right: 10px;
-      }
-      #user-menu a {
-        color: #4a90a4;
-        text-decoration: none;
-      }
-      #user-menu a:hover {
-        text-decoration: underline;
-      }
     </style>
   </head>
   <body onLoad="ttInit();">
@@ -56,9 +42,6 @@
     <div id="container">
       <div id="header">
         <h1 style="float: left;">timetracker</h1>
-        <div id="user-menu" style="float: right; margin: 10px 15px; font-size: 14px;">
-          <a href="javascript:void(0)" onclick="showLoginModal()">Login</a>
-        </div>
         <div id="view-links">
         <a href="javascript:void(0)" onClick="synchToServer()" class="view-switch"><i  style="cursor:pointer;"  class="fa fa-refresh fa-lg" id="synch-icon"></i> <span>Synch</span></a>
 
