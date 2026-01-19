@@ -4,6 +4,23 @@ var ttData;
 
 var feedbackElement;
 
+// Server configuration
+var serverConfig = {
+  baseUrl: 'https://api.taakl.app',
+  endpoints: {
+    register: '/api/register',
+    login: '/api/login',
+    logout: '/api/logout',
+    me: '/api/me',
+    sync: '/api/sync',
+    syncFull: '/api/sync/full',
+    settings: '/api/settings'
+  }
+};
+
+// Auth state
+var authToken = localStorage.authToken || null;
+
 var eventWatchers = [];
 
 var startDate;
@@ -711,17 +728,14 @@ function ttInit(){
       ttData = {
         "userKey" : newId(),
         "userName" : '',
-        "password" : '',
         "clients" : {},
         "settings" : defaultSettings,
-        "synchQueue" : {}
+        "synchQueue" : [],
+        "lastSyncTime" : null
       };
 
-      $("#edit-popup").html('<h3>Bienvenue</h3>It looks like you haven\'t used the timetracker on this device before, or you\'ve cleared your local storage data. If you\'d like to synch this device with existing online data, enter your user key below.<form><input id="add-userkey-input" placeholder="Enter key"/><a class="button" onClick="saveUserKey()">Save</a></form>');
-
-      $("#modal-bg").show();
-      $("#edit-popup").show();
-
+      // Show login/register modal for new users
+      showAuthModal();
       return;
 
 
@@ -825,7 +839,10 @@ function ttInit(){
    }
 
 
-   if(getSetting("auto_synch") == "yes"){
+   // Update auth UI on init
+   updateAuthUI();
+
+   if(getSetting("auto_synch") == "yes" && isLoggedIn()){
      synchToServer();
    }
 
@@ -859,7 +876,7 @@ function saveClient(){
   ttData.clients[new_client.id] = new_client;
   ttSave();
 
-  synchQueue.add("client",new_client.id);
+  synchQueue.add("insert", "client", new_client.id);
 
   emitEvent('client','add');
 
@@ -978,7 +995,7 @@ function saveProject(){
   ttData.clients[current_client.id].projects[new_project.id] = new_project;
   ttSave();
 
-  synchQueue.add("project",new_project.id);
+  synchQueue.add("insert", "project", new_project.id, current_client.id);
 
   emitEvent("project","add",new_project.id);
   /*
@@ -1133,7 +1150,7 @@ function saveNewTask(projectId,task_name){
   lastTaskSaveId = new_task.id;
 
 
-  synchQueue.add("task",new_task.id);
+  synchQueue.add("insert", "task", new_task.id, current_project.id);
 
   emitEvent("task","added");
 
@@ -1259,13 +1276,13 @@ function endSession(markComplete){
   taskList.update(); // Move
 
 
-  synchQueue.add("session",pastSessionId);
+  synchQueue.add("insert", "session", pastSessionId, current_task.id);
 
   emitEvent('session','ended');
 
   dbg("Auto synch setting",getSetting("auto_synch"));
 
-  if(getSetting("auto_synch") == "yes"){
+  if(getSetting("auto_synch") == "yes" && isLoggedIn()){
     synchToServer();
   }
 
@@ -1552,20 +1569,208 @@ function moveTaskToProject(taskId, newProjectId) {
 
 
 function saveUserKey(){
-
+  // Legacy function - kept for compatibility
   key_val = $("#add-userkey-input").val();
   ttData.userKey = key_val;
-
   ttSave();
+  hideModal();
+  ttInit();
+}
 
+/* ############################# AUTH FUNCTIONS ############################# */
+
+function showAuthModal(mode) {
+  mode = mode || 'login';
+  var html = '<div id="auth-modal">';
+  html += '<h3 id="auth-title">' + (mode === 'login' ? 'Login' : 'Create Account') + '</h3>';
+  html += '<div id="auth-error" style="color: red; margin-bottom: 10px; display: none;"></div>';
+  html += '<form id="auth-form" onsubmit="return false;">';
+  html += '<input type="text" id="auth-username" placeholder="Username" autocomplete="username" required />';
+  html += '<input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required />';
+  if (mode === 'register') {
+    html += '<input type="email" id="auth-email" placeholder="Email (optional)" autocomplete="email" />';
+  }
+  html += '<div style="margin-top: 15px;">';
+  if (mode === 'login') {
+    html += '<a class="button" onclick="doLogin()">Login</a>';
+    html += '<a class="button" onclick="showAuthModal(\'register\')" style="margin-left: 10px;">Create Account</a>';
+  } else {
+    html += '<a class="button" onclick="doRegister()">Create Account</a>';
+    html += '<a class="button" onclick="showAuthModal(\'login\')" style="margin-left: 10px;">Back to Login</a>';
+  }
+  html += '</div>';
+  html += '</form>';
+  html += '<div style="margin-top: 15px; font-size: 12px; color: #666;">';
+  html += '<a href="javascript:void(0)" onclick="skipAuth()">Skip for now (local only)</a>';
+  html += '</div>';
+  html += '</div>';
+
+  $("#edit-popup").html(html);
+  $("#modal-bg").show();
+  $("#edit-popup").show();
+  $("#auth-username").focus();
+}
+
+function hideModal() {
   $("#modal-bg").hide();
   $("#edit-popup").hide();
   $("#edit-popup").html('');
-
-  ttInit();
-
 }
 
+function showAuthError(message) {
+  $("#auth-error").text(message).show();
+}
+
+function doLogin() {
+  var username = $("#auth-username").val().trim();
+  var password = $("#auth-password").val();
+
+  if (!username || !password) {
+    showAuthError('Please enter username and password');
+    return;
+  }
+
+  $("#auth-error").hide();
+  setFeedback('Logging in...', 'notice');
+
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.login,
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ username: username, password: password }),
+    success: function(result) {
+      if (result.success) {
+        authToken = result.token;
+        localStorage.authToken = authToken;
+        ttData.userKey = result.user.uuid;
+        ttData.userName = result.user.username;
+        ttSave();
+        setFeedback('Logged in successfully');
+        hideModal();
+        // Sync from server after login
+        synchFromServer();
+        ttInit();
+      } else {
+        showAuthError(result.error || 'Login failed');
+      }
+    },
+    error: function(xhr) {
+      var error = 'Login failed';
+      try {
+        var resp = JSON.parse(xhr.responseText);
+        error = resp.error || error;
+      } catch(e) {}
+      showAuthError(error);
+    }
+  });
+}
+
+function doRegister() {
+  var username = $("#auth-username").val().trim();
+  var password = $("#auth-password").val();
+  var email = $("#auth-email").val().trim();
+
+  if (!username || !password) {
+    showAuthError('Please enter username and password');
+    return;
+  }
+
+  if (password.length < 8) {
+    showAuthError('Password must be at least 8 characters');
+    return;
+  }
+
+  $("#auth-error").hide();
+  setFeedback('Creating account...', 'notice');
+
+  var data = { username: username, password: password };
+  if (email) data.email = email;
+
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.register,
+    type: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify(data),
+    success: function(result) {
+      if (result.success) {
+        authToken = result.token;
+        localStorage.authToken = authToken;
+        ttData.userKey = result.user.uuid;
+        ttData.userName = result.user.username;
+        ttSave();
+        setFeedback('Account created successfully');
+        hideModal();
+        ttInit();
+      } else {
+        showAuthError(result.error || 'Registration failed');
+      }
+    },
+    error: function(xhr) {
+      var error = 'Registration failed';
+      try {
+        var resp = JSON.parse(xhr.responseText);
+        error = resp.error || error;
+      } catch(e) {}
+      showAuthError(error);
+    }
+  });
+}
+
+function skipAuth() {
+  hideModal();
+  setFeedback('Working in local-only mode. Login to sync across devices.');
+  ttInit();
+}
+
+function doLogout() {
+  if (!authToken) {
+    setFeedback('Not logged in');
+    return;
+  }
+
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.logout,
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    success: function() {
+      authToken = null;
+      delete localStorage.authToken;
+      ttData.userName = '';
+      ttSave();
+      setFeedback('Logged out successfully');
+      updateAuthUI();
+    },
+    error: function() {
+      // Logout locally even if server fails
+      authToken = null;
+      delete localStorage.authToken;
+      ttData.userName = '';
+      ttSave();
+      setFeedback('Logged out');
+      updateAuthUI();
+    }
+  });
+}
+
+function showLoginModal() {
+  showAuthModal('login');
+}
+
+function updateAuthUI() {
+  var userMenu = document.getElementById('user-menu');
+  if (!userMenu) return;
+
+  if (authToken && ttData.userName) {
+    userMenu.innerHTML = '<span class="username">' + ttData.userName + '</span> <a href="javascript:void(0)" onclick="doLogout()">Logout</a>';
+  } else {
+    userMenu.innerHTML = '<a href="javascript:void(0)" onclick="showLoginModal()">Login</a>';
+  }
+}
+
+function isLoggedIn() {
+  return !!authToken;
+}
 
 function deleteLocalStorage(){
   if(confirm("Are you sure you would like to delete all your local time and task data?")){
@@ -3442,164 +3647,388 @@ function updateSelectOptionsFromData(type,idSuffix){
 
 
 /* ############################ SERVER SYNCHING ############################  */
-synchQueue = {}
-synchQueue.queue = [];
 
-synchQueue.add = function(action,type,id){
-  var timestamp = new Date();
-  synchQueue.queue.push({"action":action,"type":type,"id":id,"timestamp":timestamp});
-  dbg("Synch queue",synchQueue);
-  ttData.synchQueue = synchQueue.queue;
-}
+// Sync queue for tracking changes
+var synchQueue = {
+  queue: []
+};
 
+synchQueue.add = function(action, type, id, parentId) {
+  var timestamp = new Date().toISOString().replace('T', ' ').substr(0, 19);
+  var change = {
+    action: action,
+    type: type,
+    uuid: id,
+    timestamp: timestamp
+  };
 
-function synch(){
-  var queue = ttData.synchQueue.queue;
-  var synchData = {"update":[], "insert":[],"delete":[]};
-
-  for(var key in queue){
-     item = queue[key];
-     if(item.action == "delete"){
-       synchData[action].push(item);
-     }else{
-       synchData[action].push(getItemById(item.type,item.id));
-     }
+  if (parentId) {
+    change.parentUuid = parentId;
   }
-  dbg(synchData);
-  synchToServer(synchData);
+
+  // Get the data for insert/update
+  if (action !== 'delete') {
+    change.data = getItemData(type, id);
+  }
+
+  synchQueue.queue.push(change);
+  ttData.synchQueue = synchQueue.queue;
+  dbg("Synch queue", synchQueue);
+  ttSave();
+};
+
+// Helper to get item data for sync
+function getItemData(type, id) {
+  var item = getItemById(type, id);
+  if (!item) return null;
+
+  var data = { id: item.id, name: item.name };
+
+  if (type === 'task') {
+    data.status = item.status;
+    data.priority = item.priority;
+    data.billable = item.billable;
+    data.estimate = item.estimate;
+    data.due = item.due;
+    data.starred = item.starred;
+    data.notes = item.notes;
+  } else if (type === 'session') {
+    data.start_time = item.start_time;
+    data.end_time = item.end_time;
+    data.notes = item.notes;
+  }
+
+  return data;
 }
 
-function synchIconStatus(status){
-  if(status == "synching"){
+function synchIconStatus(status) {
+  var icon = gebi("synch-icon");
+  if (!icon) return;
 
-    gebi("synch-icon").className = "fa fa-refresh fa-lg fa-spin fa-flip-horizontal";
-    gebi("synch-icon").style.color = "#669366";
-
-  }else if(status == "error"){
-
-    gebi("synch-icon").className = "fa fa-refresh fa-lg";
-    gebi("synch-icon").style.color = "red";
-
-  }else if(status == "normal"){
-
-    gebi("synch-icon").className = "fa fa-refresh fa-lg";
-    gebi("synch-icon").style.color = "";
-
-  }else if(status == "bulge"){
-
-    gebi("synch-icon").className = "fa fa-refresh fa-2x";
-
-    setTimeout(function(){
+  if (status == "synching") {
+    icon.className = "fa fa-refresh fa-lg fa-spin fa-flip-horizontal";
+    icon.style.color = "#669366";
+  } else if (status == "error") {
+    icon.className = "fa fa-refresh fa-lg";
+    icon.style.color = "red";
+  } else if (status == "normal") {
+    icon.className = "fa fa-refresh fa-lg";
+    icon.style.color = "";
+  } else if (status == "bulge") {
+    icon.className = "fa fa-refresh fa-2x";
+    setTimeout(function() {
       synchIconStatus("normal");
     }, 200);
-
-  }else if(status == "done"){
-
-    gebi("synch-icon").className = "fa fa-refresh fa-lg";
-    gebi("synch-icon").style.color = "green";
-
-    setTimeout(function(){
+  } else if (status == "done") {
+    icon.className = "fa fa-refresh fa-lg";
+    icon.style.color = "green";
+    setTimeout(function() {
       synchIconStatus("normal");
     }, 3000);
-
   }
 }
 
+// Main sync function - uploads full data
+function synchToServer() {
+  if (!isLoggedIn()) {
+    setFeedback('Please login to sync', 'error');
+    synchIconStatus("error");
+    return;
+  }
 
+  synchIconStatus("synching");
 
-function synchToServer(){
+  console.log('[SYNC] Starting full sync to server');
 
-   //setFeedback('&nbsp;<i class="fa fa-info-circle fa-spin fa-lg"></i>&nbsp; &nbsp;Synching to server. This may take a minute....','notice',true);
+  // Prepare data for upload
+  var syncData = {
+    ttData: {
+      userKey: ttData.userKey,
+      clients: ttData.clients,
+      settings: ttData.settings
+    }
+  };
 
-   synchIconStatus("synching");
-
-   // Do normal Ajax synch if we're not in node
-   if(typeof http != "object"){
-
-     var synchUrl = 'https://photosynth.ca/timetracker/synch.php?action=synchToServer&key='+ttData.userKey;
-     var synchData = JSON.stringify(ttData);
-
-     console.log('[OUTBOUND SYNC] Starting outbound sync to server');
-     console.log('[OUTBOUND SYNC] URL:', synchUrl);
-     console.log('[OUTBOUND SYNC] Data being sent:', ttData);
-     console.log('[OUTBOUND SYNC] Data size (chars):', synchData.length);
-
-     $.ajax({
-         url: synchUrl,
-         type: 'POST',
-         contentType:'application/json',
-         data: synchData,
-         //dataType:'json',
-         success : function(result){
-            console.log('[OUTBOUND SYNC] Success! Raw server response:', result);
-            console.log('[OUTBOUND SYNC] Response type:', typeof result);
-            console.log('[OUTBOUND SYNC] Response length:', result ? result.length : 0);
-            setFeedback('Data successfully sent to server');
-            document.getElementById('json-output').innerHTML = result;
-            dbg("Success on outbound synch. Starting inbound synch.");
-            synchFromServer();
-         },
-         error: function(xhr, ajaxOptions, thrownError){
-            console.log('[OUTBOUND SYNC] Error occurred!');
-            console.log('[OUTBOUND SYNC] XHR status:', xhr.status);
-            console.log('[OUTBOUND SYNC] XHR statusText:', xhr.statusText);
-            console.log('[OUTBOUND SYNC] XHR responseText:', xhr.responseText);
-            console.log('[OUTBOUND SYNC] ajaxOptions:', ajaxOptions);
-            console.log('[OUTBOUND SYNC] thrownError:', thrownError);
-            setFeedback('Error synching to server: '+thrownError);
-            synchIconStatus("error");
-         },
-
-
-    });
-
-   }else{
-
-      nodeRequest('to');
-
-   }
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    data: JSON.stringify(syncData),
+    success: function(result) {
+      console.log('[SYNC] Upload success:', result);
+      if (result.success) {
+        setFeedback('Data uploaded. Fetching latest...');
+        // Clear sync queue after successful upload
+        synchQueue.queue = [];
+        ttData.synchQueue = [];
+        ttSave();
+        // Now fetch server data
+        synchFromServer();
+      } else {
+        setFeedback('Sync error: ' + (result.error || 'Unknown error'), 'error');
+        synchIconStatus("error");
+      }
+    },
+    error: function(xhr, ajaxOptions, thrownError) {
+      console.log('[SYNC] Upload error:', xhr.status, thrownError);
+      if (xhr.status === 401) {
+        setFeedback('Session expired. Please login again.', 'error');
+        authToken = null;
+        delete localStorage.authToken;
+        updateAuthUI();
+      } else {
+        setFeedback('Error synching to server: ' + thrownError, 'error');
+      }
+      synchIconStatus("error");
+    }
+  });
 }
 
+// Download data from server
+function synchFromServer() {
+  if (!isLoggedIn()) {
+    setFeedback('Please login to sync', 'error');
+    synchIconStatus("error");
+    return;
+  }
 
-function synchFromServer(){
+  setFeedback('Synching from server...');
+  synchIconStatus("synching");
 
-   setFeedback('<i class="fa fa-lightbulb-o fa-spinner fa-lg"></i> Synching from server. This may take a minute....');
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
+    type: 'GET',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    success: function(result) {
+      console.log('[SYNC] Download success:', result);
 
-  if(typeof http != "object"){
+      if (result.success && result.ttData) {
+        var serverData = result.ttData;
 
-     $.ajax({
-         url: 'http://photosynth.ca/timetracker/synch.php?action=synchFromServer&key='+ttData.userKey,
-         type: 'POST',
-         contentType:'application/json',
-         data:{"action":"synchFromServer"},
-         //dataType:'json',
-         success : function(result){
+        // Preserve local auth info
+        serverData.userKey = ttData.userKey;
+        serverData.userName = ttData.userName;
+        serverData.synchQueue = [];
+        serverData.lastSyncTime = new Date().toISOString().replace('T', ' ').substr(0, 19);
 
-            try{
-              server_data = JSON.parse(result);
-            }catch(err){
-               setFeedback('Error parsing data from server.','error');
-               throw 'JSON parsing exception';
-            }
+        // Ensure settings exist
+        if (!serverData.settings) {
+          serverData.settings = defaultSettings;
+        }
 
-            server_data.userKey = ttData.userKey;
-            ttData = server_data;
-            ttSave();
-            setFeedback('Data successfully received from server.');
-            synchIconStatus("done");
-            emitEvent('server','synch');
+        ttData = serverData;
+        ttSave();
+        setFeedback('Data successfully synced from server.');
+        synchIconStatus("done");
+        emitEvent('server', 'synch');
 
-         },
-         error: function(xhr, ajaxOptions, thrownError){
-            setFeedback('Error synching from server: '+thrownError);
-            synchIconStatus("error");
-         },
+        // Refresh UI
+        if (typeof taskList !== 'undefined' && taskList.show) {
+          taskList.show();
+        }
+      } else {
+        setFeedback('Sync completed (no server data)', 'notice');
+        synchIconStatus("done");
+      }
+    },
+    error: function(xhr, ajaxOptions, thrownError) {
+      console.log('[SYNC] Download error:', xhr.status, thrownError);
+      if (xhr.status === 401) {
+        setFeedback('Session expired. Please login again.', 'error');
+        authToken = null;
+        delete localStorage.authToken;
+        updateAuthUI();
+      } else {
+        setFeedback('Error synching from server: ' + thrownError, 'error');
+      }
+      synchIconStatus("error");
+    }
+  });
+}
 
-      });
+// Incremental sync - sends only queued changes
+function synchIncremental() {
+  if (!isLoggedIn()) {
+    setFeedback('Please login to sync', 'error');
+    return;
+  }
 
-   }else{
+  if (!synchQueue.queue || synchQueue.queue.length === 0) {
+    console.log('[SYNC] No changes to sync');
+    synchFromServer(); // Still fetch updates
+    return;
+  }
 
-      nodeRequest('from');
+  synchIconStatus("synching");
+  console.log('[SYNC] Incremental sync with', synchQueue.queue.length, 'changes');
+
+  var syncData = {
+    lastSyncTime: ttData.lastSyncTime,
+    changes: synchQueue.queue
+  };
+
+  $.ajax({
+    url: serverConfig.baseUrl + serverConfig.endpoints.sync,
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    data: JSON.stringify(syncData),
+    success: function(result) {
+      console.log('[SYNC] Incremental sync result:', result);
+
+      if (result.success) {
+        // Update last sync time
+        ttData.lastSyncTime = result.serverTime;
+
+        // Clear the queue
+        synchQueue.queue = [];
+        ttData.synchQueue = [];
+
+        // Apply server changes
+        if (result.changes && result.changes.length > 0) {
+          applyServerChanges(result.changes);
+        }
+
+        ttSave();
+        setFeedback('Synced ' + result.stats.processed + ' changes');
+        synchIconStatus("done");
+        emitEvent('server', 'synch');
+      } else {
+        setFeedback('Sync error: ' + (result.error || 'Unknown'), 'error');
+        synchIconStatus("error");
+      }
+    },
+    error: function(xhr, ajaxOptions, thrownError) {
+      if (xhr.status === 401) {
+        setFeedback('Session expired. Please login again.', 'error');
+        authToken = null;
+        delete localStorage.authToken;
+        updateAuthUI();
+      } else {
+        setFeedback('Sync error: ' + thrownError, 'error');
+      }
+      synchIconStatus("error");
+    }
+  });
+}
+
+// Apply changes received from server
+function applyServerChanges(changes) {
+  for (var i = 0; i < changes.length; i++) {
+    var change = changes[i];
+    console.log('[SYNC] Applying server change:', change);
+
+    if (change.action === 'delete') {
+      deleteItemLocally(change.type, change.uuid);
+    } else {
+      upsertItemLocally(change.type, change.uuid, change.data, change.parentUuid);
+    }
+  }
+}
+
+// Delete item locally (used by sync)
+function deleteItemLocally(type, uuid) {
+  // Find and delete the item
+  if (type === 'client') {
+    delete ttData.clients[uuid];
+  } else if (type === 'project') {
+    for (var cid in ttData.clients) {
+      if (ttData.clients[cid].projects && ttData.clients[cid].projects[uuid]) {
+        delete ttData.clients[cid].projects[uuid];
+        break;
+      }
+    }
+  } else if (type === 'task') {
+    for (var cid in ttData.clients) {
+      for (var pid in ttData.clients[cid].projects || {}) {
+        if (ttData.clients[cid].projects[pid].tasks && ttData.clients[cid].projects[pid].tasks[uuid]) {
+          delete ttData.clients[cid].projects[pid].tasks[uuid];
+          return;
+        }
+      }
+    }
+  } else if (type === 'session') {
+    for (var cid in ttData.clients) {
+      for (var pid in ttData.clients[cid].projects || {}) {
+        for (var tid in ttData.clients[cid].projects[pid].tasks || {}) {
+          if (ttData.clients[cid].projects[pid].tasks[tid].sessions &&
+              ttData.clients[cid].projects[pid].tasks[tid].sessions[uuid]) {
+            delete ttData.clients[cid].projects[pid].tasks[tid].sessions[uuid];
+            return;
+          }
+        }
+      }
+    }
+  }
+}
+
+// Upsert item locally (used by sync)
+function upsertItemLocally(type, uuid, data, parentUuid) {
+  if (type === 'client') {
+    if (!ttData.clients[uuid]) {
+      ttData.clients[uuid] = { id: uuid, projects: {} };
+    }
+    ttData.clients[uuid].name = data.name;
+  } else if (type === 'project' && parentUuid) {
+    if (ttData.clients[parentUuid]) {
+      if (!ttData.clients[parentUuid].projects) {
+        ttData.clients[parentUuid].projects = {};
+      }
+      if (!ttData.clients[parentUuid].projects[uuid]) {
+        ttData.clients[parentUuid].projects[uuid] = { id: uuid, tasks: {} };
+      }
+      ttData.clients[parentUuid].projects[uuid].name = data.name;
+    }
+  } else if (type === 'task' && parentUuid) {
+    // Find the project
+    for (var cid in ttData.clients) {
+      if (ttData.clients[cid].projects && ttData.clients[cid].projects[parentUuid]) {
+        var proj = ttData.clients[cid].projects[parentUuid];
+        if (!proj.tasks) proj.tasks = {};
+        if (!proj.tasks[uuid]) {
+          proj.tasks[uuid] = { id: uuid, sessions: {} };
+        }
+        Object.assign(proj.tasks[uuid], data);
+        return;
+      }
+    }
+  } else if (type === 'session' && parentUuid) {
+    // Find the task
+    for (var cid in ttData.clients) {
+      for (var pid in ttData.clients[cid].projects || {}) {
+        if (ttData.clients[cid].projects[pid].tasks &&
+            ttData.clients[cid].projects[pid].tasks[parentUuid]) {
+          var task = ttData.clients[cid].projects[pid].tasks[parentUuid];
+          if (!task.sessions) task.sessions = {};
+          if (!task.sessions[uuid]) {
+            task.sessions[uuid] = { id: uuid };
+          }
+          Object.assign(task.sessions[uuid], data);
+          return;
+        }
+      }
+    }
+  }
+}
+
+// Legacy callback functions
+function synchSuccessCallback(data) {
+  setFeedback('Data successfully sent to server');
+  synchFromServer();
+}
+
+function synchErrorCallback(error) {
+  setFeedback(error, "error");
+  synchIconStatus("error");
+}
+
+// Legacy node request - updated to use new API
+function nodeRequest(direction, url) {
+  if (!isLoggedIn()) {
+    setFeedback('Please login to sync', 'error');
+    return;
 
    }
 }
