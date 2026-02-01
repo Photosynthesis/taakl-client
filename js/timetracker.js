@@ -247,138 +247,203 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Initialize autocomplete
-taskAutocomplete.init = function() {
-  var input = gebi('new-task-input');
-  var dropdown = gebi('task-autocomplete');
+// Factory function to create autocomplete instances
+function createTaskAutocomplete(inputId, dropdownId) {
+  var ac = {};
 
-  if (!input || !dropdown) return;
+  ac.init = function() {
+    var input = gebi(inputId);
+    var dropdown = gebi(dropdownId);
 
-  taskAutocomplete.input = input;
-  taskAutocomplete.dropdown = dropdown;
-  taskAutocomplete.selectedIndex = -1;
-  taskAutocomplete.items = [];
-  taskAutocomplete.slashPosition = -1;
-  taskAutocomplete.selectedClient = null;
+    if (!input || !dropdown) return;
 
-  // Bind input events (using bind for jQuery 1.6.4 compatibility)
-  $(input).bind('input', function(e) {
-    taskAutocomplete.handleInput(e);
-  });
+    ac.input = input;
+    ac.dropdown = dropdown;
+    ac.selectedIndex = -1;
+    ac.items = [];
+    ac.slashPosition = -1;
+    ac.selectedClient = null;
 
-  $(input).bind('keydown', function(e) {
-    taskAutocomplete.handleKeydown(e);
-  });
+    // Bind input events (using bind for jQuery 1.6.4 compatibility)
+    $(input).bind('input', function(e) {
+      ac.handleInput(e);
+    });
 
-  $(input).bind('blur', function(e) {
-    // Delay to allow click on dropdown items
-    setTimeout(function() {
-      taskAutocomplete.hide();
-    }, 200);
-  });
+    $(input).bind('keydown', function(e) {
+      ac.handleKeydown(e);
+    });
 
-  // Click on dropdown items (using delegate for jQuery 1.6.4 compatibility)
-  $(dropdown).delegate('.autocomplete-item', 'click', function() {
-    var index = $(this).data('index');
-    taskAutocomplete.selectItem(index);
-  });
-};
+    $(input).bind('blur', function(e) {
+      // Delay to allow click on dropdown items
+      setTimeout(function() {
+        ac.hide();
+      }, 200);
+    });
 
-// Handle input changes
-taskAutocomplete.handleInput = function(e) {
-  var value = this.input.value;
-  var cursorPos = this.input.selectionStart;
+    // Click on dropdown items (using delegate for jQuery 1.6.4 compatibility)
+    $(dropdown).delegate('.autocomplete-item', 'click', function() {
+      var index = $(this).data('index');
+      ac.selectItem(index);
+    });
+  };
 
-  // Find the last "/" before cursor that starts a path
-  var lastSlashPos = -1;
-  for (var i = cursorPos - 1; i >= 0; i--) {
-    if (value[i] === '/') {
-      lastSlashPos = i;
-      break;
+  // Handle input changes
+  ac.handleInput = function(e) {
+    var value = this.input.value;
+    var cursorPos = this.input.selectionStart;
+
+    // Find the last "/" before cursor that starts a path
+    var lastSlashPos = -1;
+    for (var i = cursorPos - 1; i >= 0; i--) {
+      if (value[i] === '/') {
+        lastSlashPos = i;
+        break;
+      }
+      // Stop searching if we hit whitespace before finding a slash
+      if (value[i] === ' ' && lastSlashPos === -1) {
+        break;
+      }
     }
-    // Stop searching if we hit whitespace before finding a slash
-    if (value[i] === ' ' && lastSlashPos === -1) {
-      break;
+
+    // Check if we're in an autocomplete context
+    if (lastSlashPos === -1) {
+      this.hide();
+      this.selectedClient = null;
+      return;
     }
-  }
 
-  // Check if we're in an autocomplete context
-  if (lastSlashPos === -1) {
-    this.hide();
-    this.selectedClient = null;
-    return;
-  }
+    // Get the search text after the last slash
+    var searchStart = lastSlashPos + 1;
 
-  // Get the search text after the last slash
-  var searchStart = lastSlashPos + 1;
-
-  // Check if there's a completed client selection (find previous slash)
-  var prevSlashPos = -1;
-  for (var i = lastSlashPos - 1; i >= 0; i--) {
-    if (value[i] === '/') {
-      prevSlashPos = i;
-      break;
+    // Check if there's a completed client selection (find previous slash)
+    var prevSlashPos = -1;
+    for (var i = lastSlashPos - 1; i >= 0; i--) {
+      if (value[i] === '/') {
+        prevSlashPos = i;
+        break;
+      }
+      if (value[i] === ' ') {
+        break;
+      }
     }
-    if (value[i] === ' ') {
-      break;
-    }
-  }
 
-  var searchText = value.substring(searchStart, cursorPos);
-  this.slashPosition = lastSlashPos;
+    var searchText = value.substring(searchStart, cursorPos);
+    this.slashPosition = lastSlashPos;
 
-  // Determine context and get matches
-  if (prevSlashPos !== -1) {
-    // User has typed /Client/... - extract client name and search projects
-    var clientName = value.substring(prevSlashPos + 1, lastSlashPos);
-    this.selectedClient = this.findClientByName(clientName);
-    if (this.selectedClient) {
+    // Determine context and get matches
+    if (prevSlashPos !== -1) {
+      // User has typed /Client/... - extract client name and search projects
+      var clientName = value.substring(prevSlashPos + 1, lastSlashPos);
+      this.selectedClient = this.findClientByName(clientName);
+      if (this.selectedClient) {
+        this.showProjectMatches(searchText, this.selectedClient);
+      } else {
+        this.hide();
+      }
+    } else if (this.selectedClient) {
+      // Client was selected via autocomplete, search projects from that client
       this.showProjectMatches(searchText, this.selectedClient);
     } else {
-      this.hide();
+      // No client context - show both clients and projects
+      this.showAllMatches(searchText);
     }
-  } else if (this.selectedClient) {
-    // Client was selected via autocomplete, search projects from that client
-    this.showProjectMatches(searchText, this.selectedClient);
-  } else {
-    // No client context - show both clients and projects
-    this.showAllMatches(searchText);
-  }
-};
+  };
 
-// Find client by name (case insensitive)
-taskAutocomplete.findClientByName = function(name) {
-  var nameLower = name.toLowerCase();
-  for (var clientId in ttData.clients) {
-    if (ttData.clients[clientId].name.toLowerCase() === nameLower) {
-      return ttData.clients[clientId];
+  // Find client by name (case insensitive)
+  ac.findClientByName = function(name) {
+    var nameLower = name.toLowerCase();
+    for (var clientId in ttData.clients) {
+      if (ttData.clients[clientId].name.toLowerCase() === nameLower) {
+        return ttData.clients[clientId];
+      }
     }
-  }
-  return null;
-};
+    return null;
+  };
 
-// Find project by name within client (case insensitive)
-taskAutocomplete.findProjectByName = function(name, client) {
-  var nameLower = name.toLowerCase();
-  if (!client || !client.projects) return null;
+  // Find project by name within client (case insensitive)
+  ac.findProjectByName = function(name, client) {
+    var nameLower = name.toLowerCase();
+    if (!client || !client.projects) return null;
 
-  for (var projectId in client.projects) {
-    if (client.projects[projectId].name.toLowerCase() === nameLower) {
-      return client.projects[projectId];
+    for (var projectId in client.projects) {
+      if (client.projects[projectId].name.toLowerCase() === nameLower) {
+        return client.projects[projectId];
+      }
     }
-  }
-  return null;
-};
+    return null;
+  };
 
-// Show all matches (clients and projects)
-taskAutocomplete.showAllMatches = function(searchText) {
-  var matches = [];
-  var searchLower = searchText.toLowerCase();
-  var selectedClientId = (current_client && typeof current_client === 'object' && current_client.id) ? current_client.id : null;
+  // Show all matches (clients and projects)
+  ac.showAllMatches = function(searchText) {
+    var matches = [];
+    var searchLower = searchText.toLowerCase();
+    var selectedClientId = (current_client && typeof current_client === 'object' && current_client.id) ? current_client.id : null;
 
-  // If a client is selected in dropdown, only show that client's projects
-  if (selectedClientId) {
-    var client = ttData.clients[selectedClientId];
+    // If a client is selected in dropdown, only show that client's projects
+    if (selectedClientId) {
+      var client = ttData.clients[selectedClientId];
+      if (client && client.projects) {
+        for (var projectId in client.projects) {
+          var project = client.projects[projectId];
+          if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
+            matches.push({
+              type: 'project',
+              id: projectId,
+              name: project.name,
+              clientId: selectedClientId,
+              clientName: client.name
+            });
+          }
+        }
+      }
+    } else {
+      // No client selected - show both clients and projects
+      for (var clientId in ttData.clients) {
+        var client = ttData.clients[clientId];
+
+        // Match client names
+        if (client.name.toLowerCase().indexOf(searchLower) !== -1) {
+          matches.push({
+            type: 'client',
+            id: clientId,
+            name: client.name
+          });
+        }
+
+        // Match project names
+        if (client.projects) {
+          for (var projectId in client.projects) {
+            var project = client.projects[projectId];
+            if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
+              matches.push({
+                type: 'project',
+                id: projectId,
+                name: project.name,
+                clientId: clientId,
+                clientName: client.name
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Sort: clients first, then projects, alphabetically within each group
+    matches.sort(function(a, b) {
+      if (a.type !== b.type) {
+        return a.type === 'client' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    this.renderDropdown(matches);
+  };
+
+  // Show project matches (within specific client)
+  ac.showProjectMatches = function(searchText, client) {
+    var matches = [];
+    var searchLower = searchText.toLowerCase();
+
     if (client && client.projects) {
       for (var projectId in client.projects) {
         var project = client.projects[projectId];
@@ -387,239 +452,184 @@ taskAutocomplete.showAllMatches = function(searchText) {
             type: 'project',
             id: projectId,
             name: project.name,
-            clientId: selectedClientId,
+            clientId: client.id,
             clientName: client.name
           });
         }
       }
     }
-  } else {
-    // No client selected - show both clients and projects
-    for (var clientId in ttData.clients) {
-      var client = ttData.clients[clientId];
 
-      // Match client names
-      if (client.name.toLowerCase().indexOf(searchLower) !== -1) {
-        matches.push({
-          type: 'client',
-          id: clientId,
-          name: client.name
-        });
+    matches.sort(function(a, b) {
+      return a.name.localeCompare(b.name);
+    });
+
+    this.renderDropdown(matches);
+  };
+
+  // Render dropdown
+  ac.renderDropdown = function(matches) {
+    this.items = matches;
+    this.selectedIndex = matches.length > 0 ? 0 : -1;
+
+    if (matches.length === 0) {
+      this.dropdown.innerHTML = '<div class="autocomplete-no-matches">No matches found</div>';
+      this.dropdown.style.display = 'block';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < matches.length; i++) {
+      var item = matches[i];
+      var selectedClass = (i === 0) ? ' selected' : '';
+      var typeClass = item.type + '-item';
+
+      html += '<div class="autocomplete-item ' + typeClass + selectedClass + '" data-index="' + i + '">';
+      html += '<span class="autocomplete-item-name">' + escapeHtml(item.name) + '</span>';
+
+      if (item.type === 'project' && item.clientName) {
+        html += '<span class="autocomplete-item-meta">(' + escapeHtml(item.clientName) + ')</span>';
       }
 
-      // Match project names
-      if (client.projects) {
-        for (var projectId in client.projects) {
-          var project = client.projects[projectId];
-          if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
-            matches.push({
-              type: 'project',
-              id: projectId,
-              name: project.name,
-              clientId: clientId,
-              clientName: client.name
-            });
-          }
-        }
-      }
+      html += '</div>';
     }
-  }
 
-  // Sort: clients first, then projects, alphabetically within each group
-  matches.sort(function(a, b) {
-    if (a.type !== b.type) {
-      return a.type === 'client' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-
-  this.renderDropdown(matches);
-};
-
-// Show project matches (within specific client)
-taskAutocomplete.showProjectMatches = function(searchText, client) {
-  var matches = [];
-  var searchLower = searchText.toLowerCase();
-
-  if (client && client.projects) {
-    for (var projectId in client.projects) {
-      var project = client.projects[projectId];
-      if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
-        matches.push({
-          type: 'project',
-          id: projectId,
-          name: project.name,
-          clientId: client.id,
-          clientName: client.name
-        });
-      }
-    }
-  }
-
-  matches.sort(function(a, b) {
-    return a.name.localeCompare(b.name);
-  });
-
-  this.renderDropdown(matches);
-};
-
-// Render dropdown
-taskAutocomplete.renderDropdown = function(matches) {
-  this.items = matches;
-  this.selectedIndex = matches.length > 0 ? 0 : -1;
-
-  if (matches.length === 0) {
-    this.dropdown.innerHTML = '<div class="autocomplete-no-matches">No matches found</div>';
+    this.dropdown.innerHTML = html;
     this.dropdown.style.display = 'block';
-    return;
-  }
+  };
 
-  var html = '';
-  for (var i = 0; i < matches.length; i++) {
-    var item = matches[i];
-    var selectedClass = (i === 0) ? ' selected' : '';
-    var typeClass = item.type + '-item';
-
-    html += '<div class="autocomplete-item ' + typeClass + selectedClass + '" data-index="' + i + '">';
-    html += '<span class="autocomplete-item-name">' + escapeHtml(item.name) + '</span>';
-
-    if (item.type === 'project' && item.clientName) {
-      html += '<span class="autocomplete-item-meta">(' + escapeHtml(item.clientName) + ')</span>';
+  // Handle keyboard navigation
+  ac.handleKeydown = function(e) {
+    if (this.dropdown.style.display !== 'block' || this.items.length === 0) {
+      return;
     }
 
-    html += '</div>';
-  }
-
-  this.dropdown.innerHTML = html;
-  this.dropdown.style.display = 'block';
-};
-
-// Handle keyboard navigation
-taskAutocomplete.handleKeydown = function(e) {
-  if (this.dropdown.style.display !== 'block' || this.items.length === 0) {
-    return;
-  }
-
-  switch (e.keyCode) {
-    case 40: // Down arrow
-      e.preventDefault();
-      this.selectedIndex = Math.min(this.selectedIndex + 1, this.items.length - 1);
-      this.updateSelection();
-      break;
-
-    case 38: // Up arrow
-      e.preventDefault();
-      this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-      this.updateSelection();
-      break;
-
-    case 13: // Enter
-      if (this.selectedIndex >= 0) {
+    switch (e.keyCode) {
+      case 40: // Down arrow
         e.preventDefault();
-        e.stopPropagation();
-        this.selectItem(this.selectedIndex);
-        return false;
-      }
-      break;
+        this.selectedIndex = Math.min(this.selectedIndex + 1, this.items.length - 1);
+        this.updateSelection();
+        break;
 
-    case 27: // Escape
-      this.hide();
-      break;
-
-    case 9: // Tab
-      if (this.selectedIndex >= 0) {
+      case 38: // Up arrow
         e.preventDefault();
-        this.selectItem(this.selectedIndex);
-      }
-      break;
-  }
-};
+        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+        this.updateSelection();
+        break;
 
-// Update selection highlight
-taskAutocomplete.updateSelection = function() {
-  var items = this.dropdown.querySelectorAll('.autocomplete-item');
-  for (var i = 0; i < items.length; i++) {
-    if (i === this.selectedIndex) {
-      items[i].classList.add('selected');
-      items[i].scrollIntoView({ block: 'nearest' });
-    } else {
-      items[i].classList.remove('selected');
+      case 13: // Enter
+        if (this.selectedIndex >= 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.selectItem(this.selectedIndex);
+          return false;
+        }
+        break;
+
+      case 27: // Escape
+        this.hide();
+        break;
+
+      case 9: // Tab
+        if (this.selectedIndex >= 0) {
+          e.preventDefault();
+          this.selectItem(this.selectedIndex);
+        }
+        break;
     }
-  }
-};
+  };
 
-// Select item (insert into input)
-taskAutocomplete.selectItem = function(index) {
-  var item = this.items[index];
-  if (!item) return;
+  // Update selection highlight
+  ac.updateSelection = function() {
+    var items = this.dropdown.querySelectorAll('.autocomplete-item');
+    for (var i = 0; i < items.length; i++) {
+      if (i === this.selectedIndex) {
+        items[i].classList.add('selected');
+        items[i].scrollIntoView({ block: 'nearest' });
+      } else {
+        items[i].classList.remove('selected');
+      }
+    }
+  };
 
-  var value = this.input.value;
-  var cursorPos = this.input.selectionStart;
+  // Select item (insert into input)
+  ac.selectItem = function(index) {
+    var item = this.items[index];
+    if (!item) return;
 
-  // Find the start of the autocomplete region (first slash in current sequence)
-  var regionStart = this.slashPosition;
-  for (var i = this.slashPosition - 1; i >= 0; i--) {
-    if (value[i] === '/') {
-      // Check if there's already a client part
-      if (this.selectedClient) {
-        // Keep the /ClientName/ part, only replace from current slash
+    var value = this.input.value;
+    var cursorPos = this.input.selectionStart;
+
+    // Find the start of the autocomplete region (first slash in current sequence)
+    var regionStart = this.slashPosition;
+    for (var i = this.slashPosition - 1; i >= 0; i--) {
+      if (value[i] === '/') {
+        // Check if there's already a client part
+        if (this.selectedClient) {
+          // Keep the /ClientName/ part, only replace from current slash
+          break;
+        }
+        regionStart = i;
+      } else if (value[i] === ' ') {
         break;
       }
-      regionStart = i;
-    } else if (value[i] === ' ') {
-      break;
     }
-  }
 
-  // Determine what to insert
-  var insertText = '';
-  var newCursorPos;
+    // Determine what to insert
+    var insertText = '';
+    var newCursorPos;
 
-  if (item.type === 'client') {
-    // Insert client name with trailing slash for project selection
-    insertText = '/' + item.name + '/';
-    this.selectedClient = ttData.clients[item.id];
-    newCursorPos = regionStart + insertText.length;
-  } else {
-    // Project selected
-    if (this.selectedClient) {
-      // Already have client, just insert project name with trailing slash
-      insertText = item.name + '/';
-      // Replace from after the client slash
-      regionStart = this.slashPosition + 1;
-    } else if (current_client && typeof current_client === 'object' && current_client.id) {
-      // Client dropdown is set, just use project name
+    if (item.type === 'client') {
+      // Insert client name with trailing slash for project selection
       insertText = '/' + item.name + '/';
+      this.selectedClient = ttData.clients[item.id];
+      newCursorPos = regionStart + insertText.length;
     } else {
-      // No client context, insert full path
-      insertText = '/' + item.clientName + '/' + item.name + '/';
+      // Project selected
+      if (this.selectedClient) {
+        // Already have client, just insert project name with trailing slash
+        insertText = item.name + '/';
+        // Replace from after the client slash
+        regionStart = this.slashPosition + 1;
+      } else if (current_client && typeof current_client === 'object' && current_client.id) {
+        // Client dropdown is set, just use project name
+        insertText = '/' + item.name + '/';
+      } else {
+        // No client context, insert full path
+        insertText = '/' + item.clientName + '/' + item.name + '/';
+      }
+      newCursorPos = regionStart + insertText.length;
+      this.selectedClient = null;
     }
-    newCursorPos = regionStart + insertText.length;
-    this.selectedClient = null;
-  }
 
-  // Construct new value
-  var before = value.substring(0, regionStart);
-  var after = value.substring(cursorPos);
+    // Construct new value
+    var before = value.substring(0, regionStart);
+    var after = value.substring(cursorPos);
 
-  this.input.value = before + insertText + after;
-  this.input.selectionStart = this.input.selectionEnd = newCursorPos;
+    this.input.value = before + insertText + after;
+    this.input.selectionStart = this.input.selectionEnd = newCursorPos;
 
-  this.hide();
-  this.input.focus();
+    this.hide();
+    this.input.focus();
 
-  // If we just selected a client, trigger input to show projects
-  if (item.type === 'client') {
-    $(this.input).trigger('input');
-  }
-};
+    // If we just selected a client, trigger input to show projects
+    if (item.type === 'client') {
+      $(this.input).trigger('input');
+    }
+  };
 
-// Hide dropdown
-taskAutocomplete.hide = function() {
-  this.dropdown.style.display = 'none';
-  this.items = [];
-  this.selectedIndex = -1;
-};
+  // Hide dropdown
+  ac.hide = function() {
+    this.dropdown.style.display = 'none';
+    this.items = [];
+    this.selectedIndex = -1;
+  };
+
+  return ac;
+}
+
+// Create autocomplete instances
+var taskAutocomplete = createTaskAutocomplete('new-task-input', 'task-autocomplete');
+var todayAutocomplete = createTaskAutocomplete('today-new-task-input', 'today-task-autocomplete');
 
 /**
  * Parse client and project from task input
@@ -3202,6 +3212,9 @@ settingsView.save = function(){
 todayView.show = function(){
   // Hide client/project controls - not needed for today view
   gebi("client-project-controls").style.display = "none";
+
+  // Initialize autocomplete for today view task input
+  todayAutocomplete.init();
 
   // Initialize task containers
   todayView.morningTasks = [];

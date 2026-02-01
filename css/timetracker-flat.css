@@ -788,14 +788,16 @@ color: #000;
 /* ###################### AUTOCOMPLETE STYLES ###################### */
 
 /* Container for autocomplete - positioned relative to task input */
-#autocomplete-container {
+#autocomplete-container,
+#today-autocomplete-container {
   position: relative;
   display: inline-block;
   width: 85%;
 }
 
 /* Autocomplete dropdown */
-#task-autocomplete {
+#task-autocomplete,
+#today-task-autocomplete {
   position: absolute;
   top: 100%;
   left: 0;
