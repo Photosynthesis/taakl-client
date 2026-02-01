@@ -162,6 +162,13 @@
              <div style="float: left; min-width: 200px;">
              <input type="checkbox" id="hide-completed" onChange="taskList.hideCompleted()" checked>&nbsp;<label for="hide-completed">Hide&nbsp;completed</label>
              </div>
+             <div id="tag-filter-container" style="float: left; min-width: 200px;">
+               <i class="fa fa-tag"></i>
+               <select id="tag-filter-select" onchange="taskList.addTagFilter(this.value)">
+                 <option value="">+ Filter by tag</option>
+               </select>
+               <span id="active-tag-filters"></span>
+             </div>
            </div>
 
          </div>

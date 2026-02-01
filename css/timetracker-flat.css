@@ -869,3 +869,46 @@ color: #000;
   color: #999;
   font-style: italic;
 }
+
+/* ###################### TAG FILTER STYLES ###################### */
+
+#tag-filter-container {
+  display: inline-block;
+}
+
+#tag-filter-container .fa-tag {
+  color: #888;
+  margin-right: 5px;
+}
+
+#tag-filter-select {
+  min-width: 130px;
+  padding: 3px 5px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+#active-tag-filters {
+  display: inline-block;
+  margin-left: 5px;
+}
+
+.tag-chip {
+  display: inline-block;
+  background: #e8e8ff;
+  color: #444;
+  padding: 3px 8px;
+  margin: 2px;
+  border-radius: 12px;
+  font-size: 0.9em;
+}
+
+.tag-chip i {
+  margin-left: 5px;
+  cursor: pointer;
+  color: #888;
+}
+
+.tag-chip i:hover {
+  color: #c00;
+}

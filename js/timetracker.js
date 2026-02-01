@@ -2448,7 +2448,12 @@ taskList.show = function(){
 
   addEventWatcher('server','synch',function(){
     taskList.update();
+    taskList.populateTagDropdown();
     dbg("taskList server synch watcher fired");
+  },'taskList');
+
+  addEventWatcher('task','added',function(){
+    taskList.populateTagDropdown();
   },'taskList');
 
   addEventWatcher('project','set',function(projectId){
@@ -2496,6 +2501,10 @@ taskList.show = function(){
   }
   dbg("Tasklist.sortBy",taskList.sortBy);
 
+  // Populate tag filter dropdown
+  taskList.populateTagDropdown();
+  taskList.renderTagFilters();
+
   taskList.update();
 
 }
@@ -2503,6 +2512,68 @@ taskList.show = function(){
 taskList.hide = function(){
   removeEventWatchers('taskList');
 }
+
+// Tag filter state
+taskList.tagFilters = [];
+
+taskList.addTagFilter = function(tag){
+  if(tag && taskList.tagFilters.indexOf(tag) === -1){
+    taskList.tagFilters.push(tag);
+    taskList.renderTagFilters();
+    taskList.update();
+  }
+  gebi('tag-filter-select').value = '';
+};
+
+taskList.removeTagFilter = function(tag){
+  var index = taskList.tagFilters.indexOf(tag);
+  if(index > -1){
+    taskList.tagFilters.splice(index, 1);
+    taskList.renderTagFilters();
+    taskList.update();
+  }
+};
+
+taskList.clearTagFilters = function(){
+  taskList.tagFilters = [];
+  taskList.renderTagFilters();
+  taskList.update();
+};
+
+taskList.renderTagFilters = function(){
+  var container = gebi('active-tag-filters');
+  if(!container) return;
+
+  var html = '';
+  for(var i = 0; i < taskList.tagFilters.length; i++){
+    var tag = taskList.tagFilters[i];
+    html += '<span class="tag-chip">#' + escapeHtml(tag) +
+            ' <i class="fa fa-times" onclick="taskList.removeTagFilter(\'' +
+            tag + '\')"></i></span>';
+  }
+
+  container.innerHTML = html;
+};
+
+taskList.populateTagDropdown = function(){
+  var select = gebi('tag-filter-select');
+  if(!select) return;
+
+  var tags = getAllTags();
+
+  // Clear existing options except first
+  while(select.options.length > 1){
+    select.remove(1);
+  }
+
+  // Add tag options
+  for(var i = 0; i < tags.length; i++){
+    var opt = document.createElement('option');
+    opt.value = tags[i];
+    opt.textContent = '#' + tags[i];
+    select.appendChild(opt);
+  }
+};
 
 taskList.filter = function(){
 
@@ -2521,6 +2592,13 @@ taskList.filter = function(){
 
     loopData(fs,function(){
       if(this.task){
+
+        // Apply tag filter
+        if(taskList.tagFilters.length > 0){
+          if(!taskHasTags(this.task, taskList.tagFilters)){
+            return "continue";
+          }
+        }
 
         if(!this.task.time){
           this.task.time = 0;
@@ -4692,6 +4770,25 @@ function taskHasTags(task, requiredTags){
     }
   }
   return true;
+}
+
+/**
+ * Get all unique tags from all tasks in the system
+ * @returns {array} - Sorted array of unique tag names (lowercase, without #)
+ */
+function getAllTags(){
+  var tagSet = {};
+
+  loopData([], function(){
+    if(this.level === "task"){
+      var tags = extractTags(this.task.name);
+      for(var i = 0; i < tags.length; i++){
+        tagSet[tags[i]] = true;
+      }
+    }
+  });
+
+  return Object.keys(tagSet).sort();
 }
 
 function gebi(id){
