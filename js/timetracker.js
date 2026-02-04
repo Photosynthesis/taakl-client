@@ -813,6 +813,16 @@ function ttInit(){
              return false;
            }
            saveNewTask();
+        }else if(document.activeElement.id == 'today-new-task-input'){
+           // Check if autocomplete is handling this Enter key
+           var todayAutocompleteDropdown = gebi('today-task-autocomplete');
+           if (todayAutocompleteDropdown && todayAutocompleteDropdown.style.display === 'block'
+               && todayAutocomplete.selectedIndex >= 0) {
+             // Let autocomplete handle it - don't save task
+             return false;
+           }
+           saveNewTask(null, gebi('today-new-task-input').value, {starred: '1'});
+           gebi('today-new-task-input').value = '';
         }else if(document.activeElement.id == 'add-project-input'){
            saveProject();
         }else if(document.activeElement.id == 'add-client-input'){
@@ -1072,7 +1082,7 @@ function setTask(task_id){
 }
 
 
-function saveNewTask(projectId,task_name){
+function saveNewTask(projectId,task_name,options){
 
     var taskSaveTimeObj = new Date();
     var taskSaveTime = (taskSaveTimeObj.getTime());
@@ -1131,6 +1141,15 @@ function saveNewTask(projectId,task_name){
     'sessions' : {},
     'estimate' : parsed.estimate
   };
+
+  // Apply any additional options passed in (e.g., starred)
+  if (options && typeof options === 'object') {
+    for (var key in options) {
+      if (options.hasOwnProperty(key)) {
+        new_task[key] = options[key];
+      }
+    }
+  }
 
   if(gebi("billable-input")){
     if(gebi("billable-input").checked == true){

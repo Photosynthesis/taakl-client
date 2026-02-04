@@ -209,7 +209,7 @@
               <div id="today-autocomplete-container">
                 <input type="text" class="button-end-field" id="today-new-task-input" name="today-new-task-input" placeholder="Add new task (use /Client/Project/)" autocomplete="off" />
                 <div id="today-task-autocomplete"></div>
-              </div><a href="#void" onClick="saveNewTask(null, gebi('today-new-task-input').value); gebi('today-new-task-input').value='';" class="button field-end-button" id="today-save-new-task-button">Save</a>
+              </div><a href="#void" onClick="saveNewTask(null, gebi('today-new-task-input').value, {starred: '1'}); gebi('today-new-task-input').value='';" class="button field-end-button" id="today-save-new-task-button">Save</a>
             </div>
           </form>
         </div>
