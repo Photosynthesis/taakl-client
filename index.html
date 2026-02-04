@@ -63,7 +63,8 @@
       <div id="feedback" class="notice" style="display:none">
 
       </div>
-        <div id="client-project-controls">
+        <!-- Legacy client/project controls (hidden for v2) -->
+        <div id="client-project-controls" style="display: none;">
           <!-- Client controls -->
           <div class="control-container rounded" id="client-controls">
             <div class="control-title-container"><div class="control-title">Client/Category</div></div>
@@ -111,11 +112,53 @@
 
       <div class="clearfix"></div>
 
-      <!-- TaskList -->
+      <!-- TaskList / Tree View -->
       <div id="taskList-view" class="view-container" style="display: none">
 
+        <!-- Tree controls -->
+        <div id="tree-controls">
+          <div class="tree-actions">
+            <a href="#void" onclick="treeView.addFolder(null)" class="button tree-btn">
+              <i class="fa fa-folder-o"></i> Folder
+            </a>
+            <a href="#void" onclick="treeView.addTask(null)" class="button tree-btn">
+              <i class="fa fa-plus"></i> Task
+            </a>
+          </div>
+          <div class="tree-filters">
+            <input type="text" id="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
+            <label><input type="checkbox" id="tree-hide-completed" checked onchange="treeView.toggleHideCompleted()" /> Hide completed</label>
+          </div>
+        </div>
 
-           <div id="task-list">
+        <!-- Add form (hidden by default) -->
+        <div id="tree-add-form" style="display: none;">
+          <div class="tree-add-input-container">
+            <input type="text" id="tree-add-input" placeholder="New item name..." />
+            <div class="tree-add-type-buttons">
+              <a href="#void" onclick="treeView.addingType='folder'; gebi('tree-add-input').placeholder='New folder name...'" class="button tree-btn-small">
+                <i class="fa fa-folder-o"></i>
+              </a>
+              <a href="#void" onclick="treeView.addingType='task'; gebi('tree-add-input').placeholder='New task name...'" class="button tree-btn-small">
+                <i class="fa fa-check-square-o"></i>
+              </a>
+            </div>
+            <a href="#void" onclick="treeView.saveNewNode()" class="button tree-btn-small">
+              <i class="fa fa-floppy-o"></i>
+            </a>
+            <a href="#void" onclick="treeView.hideAddInput()" class="button tree-btn-small">
+              <i class="fa fa-times"></i>
+            </a>
+          </div>
+        </div>
+
+        <!-- Tree container -->
+        <div id="tree-container">
+          <ul id="node-tree" class="node-tree"></ul>
+        </div>
+
+        <!-- Legacy task list (kept for backward compat, hidden) -->
+        <div id="task-list" style="display: none;">
                 <div id="tasklist-new-task-form">
 
                   <form method="post" id="task-form" action="">
@@ -146,7 +189,7 @@
                   <div colspan="5" style="font-size: 1.5em; color: #aaa; text-align:center">No data to display</div>
                 </div>
            </div>
-           <div id="taskList-options">
+           <div id="taskList-options" style="display: none;">
              <div style="float: left; min-width: 50px;">
                <i class="fa fa-star" id="filter-starred" onClick="taskList.toggleStarFilter()" title="Show only starred tasks"></i>
              </div>

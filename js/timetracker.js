@@ -40,6 +40,7 @@ var defaultSettings = {
 
 analyze = {};
 taskList = {};
+treeView = {};
 settingsView = {};
 todayView = {};
 clientControls = {};
@@ -728,26 +729,38 @@ if(typeof Notification == "object"){
 
 /* ############################### INITIALIZE ################################# */
 
-function ttInit(){
+// Global variable for current node in tree view
+var current_node = null;
+var current_node_path = [];
 
+/**
+ * Initialize fresh data structure (v2 node-based)
+ */
+function initFreshData() {
+  ttData = {
+    dataVersion: 2,
+    userKey: newId(),
+    userName: '',
+    nodes: {},
+    rootOrder: [],
+    settings: defaultSettings,
+    synchQueue: [],
+    lastSyncTime: null
+  };
+  ttSave();
+}
+
+function ttInit(){
 
     feedbackElement = document.getElementById('feedback');
 
     if(!localStorage.ttData){
-
-      ttData = {
-        "userKey" : newId(),
-        "userName" : '',
-        "clients" : {},
-        "settings" : defaultSettings,
-        "synchQueue" : [],
-        "lastSyncTime" : null
-      };
+      // Fresh start - initialize with v2 node structure
+      initFreshData();
 
       // Show login/register modal for new users
       showAuthModal();
       return;
-
 
     }else{
       ttData = JSON.parse(localStorage.ttData);
@@ -757,43 +770,49 @@ function ttInit(){
          ttSave();
       }
 
-      /*
-      updateSelectOptionsFromData('client');
+      // Check if we're using the new node structure (v2)
+      if (isNodeStructure()) {
+        // v2 node-based structure
+        dbg("Using v2 node-based data structure");
 
-      clientControls.show();
-
-      if(getMemberCount(ttData.clients) < 1){
-         addClientForm();
-      }
-      */
-
-      if(localStorage.ttClientId && typeof ttData.clients[localStorage.ttClientId] == "object"){
-        dbg("Loading current client",ttData.clients[localStorage.ttClientId]);
-
-        current_client = ttData.clients[localStorage.ttClientId];
-
-        //setClient(localStorage.ttClientId);
-
-        if(localStorage.ttProjectId && typeof current_client.projects[localStorage.ttProjectId] == "object"){
-          dbg("Loading current project",current_client.projects[localStorage.ttProjectId]);
-
-          current_project = current_client.projects[localStorage.ttProjectId];
-
-          //setProject(current_project.id);
-
-          if(localStorage.ttTaskId && typeof current_project.tasks[localStorage.ttTaskId] == "object"){
-
-            current_task = current_project.tasks[localStorage.ttTaskId];
-
-            //setTask(current_task.id);
-
-            if(localStorage.ttSessionId){
-              current_session = current_task.sessions[localStorage.ttSessionId];
-              //continueSession();
-            }
+        // Restore current node from localStorage
+        if (localStorage.ttCurrentNodeId) {
+          current_node = getNode(localStorage.ttCurrentNodeId);
+          if (current_node) {
+            current_node_path = getNodePath(current_node.id);
           }
-        }else{
-          dbg("No data found for localStorage.ttProjectId",localStorage.ttProjectId);
+        }
+
+        // Check for active session
+        if (localStorage.ttSessionId && current_node && current_node.sessions) {
+          current_session = current_node.sessions[localStorage.ttSessionId];
+        }
+
+      } else {
+        // Legacy v1 structure - still supported but tree view will show empty
+        dbg("Using legacy v1 data structure (clients/projects/tasks)");
+
+        if(localStorage.ttClientId && typeof ttData.clients[localStorage.ttClientId] == "object"){
+          dbg("Loading current client",ttData.clients[localStorage.ttClientId]);
+
+          current_client = ttData.clients[localStorage.ttClientId];
+
+          if(localStorage.ttProjectId && typeof current_client.projects[localStorage.ttProjectId] == "object"){
+            dbg("Loading current project",current_client.projects[localStorage.ttProjectId]);
+
+            current_project = current_client.projects[localStorage.ttProjectId];
+
+            if(localStorage.ttTaskId && typeof current_project.tasks[localStorage.ttTaskId] == "object"){
+
+              current_task = current_project.tasks[localStorage.ttTaskId];
+
+              if(localStorage.ttSessionId){
+                current_session = current_task.sessions[localStorage.ttSessionId];
+              }
+            }
+          }else{
+            dbg("No data found for localStorage.ttProjectId",localStorage.ttProjectId);
+          }
         }
       }
     }
@@ -803,6 +822,12 @@ function ttInit(){
      if (e.keyCode == 13) {
 
         dbg(document.activeElement,'Active element');
+
+        // Tree view inputs
+        if(document.activeElement.id == 'tree-add-input'){
+           treeView.saveNewNode();
+           return false;
+        }
 
         if(document.activeElement.id == 'new-task-input'){
            // Check if autocomplete is handling this Enter key
@@ -821,8 +846,7 @@ function ttInit(){
              // Let autocomplete handle it - don't save task
              return false;
            }
-           saveNewTask(null, gebi('today-new-task-input').value, {starred: '1'});
-           gebi('today-new-task-input').value = '';
+           treeView.saveNewTaskFromToday();
         }else if(document.activeElement.id == 'add-project-input'){
            saveProject();
         }else if(document.activeElement.id == 'add-client-input'){
@@ -835,15 +859,21 @@ function ttInit(){
    });
 
 
+   // Initialize the appropriate view based on data structure
+   if (isNodeStructure()) {
+     // v2: Use tree view
+     setView('taskList');
+   } else {
+     // v1: Legacy client/project controls
+     clientControls.show();
 
-   clientControls.show();
+     if(typeof current_client == "object"){
+       projectControls.show();
+     }
 
-   if(typeof current_client == "object"){
-     projectControls.show();
-   }
-
-   if(getMemberCount(ttData.clients) > 0){
-      setView('taskList');
+     if(getMemberCount(ttData.clients) > 0){
+        setView('taskList');
+     }
    }
 
 
@@ -866,8 +896,10 @@ function ttInit(){
      synchToServer();
    }
 
-   // Initialize task autocomplete
-   taskAutocomplete.init();
+   // Initialize task autocomplete (for legacy view)
+   if (!isNodeStructure()) {
+     taskAutocomplete.init();
+   }
 
 }
 
@@ -1261,7 +1293,13 @@ function startGeneralSession(taskId) {
 function continueSession(){
   startDate = moment(current_session.start_time);
   counterId = setInterval(incrementCurrentDuration, 1000);
-  showInSession();
+
+  // Use appropriate UI based on data structure
+  if (isNodeStructure() && current_node) {
+    showNodeInSession();
+  } else {
+    showInSession();
+  }
 }
 
 
@@ -2115,7 +2153,12 @@ function setView(view){
     if(view == "analyze"){
       currentView = analyze;
     }else if(view == "taskList"){
-      currentView = taskList;
+      // Use treeView for v2 node structure, taskList for legacy
+      if (isNodeStructure()) {
+        currentView = treeView;
+      } else {
+        currentView = taskList;
+      }
     }else if(view == "settingsView"){
       currentView = settingsView;
     }else if(view == "todayView"){
@@ -2853,6 +2896,660 @@ taskList.toggleStarFilter = function(){
 }
 
 
+/* ################################ TREE VIEW (v2) ################################ */
+
+var treeView = {};
+
+// State
+treeView.searchFilter = '';
+treeView.hideCompleted = true;
+treeView.selectedNodeId = null;
+treeView.draggedNodeId = null;
+treeView.addingTo = null; // parent ID for new node being added (null = root)
+treeView.addingType = 'task'; // 'task' or 'folder'
+
+treeView.show = function() {
+  // Hide legacy client/project controls
+  var clientProjectControls = gebi("client-project-controls");
+  if (clientProjectControls) {
+    clientProjectControls.style.display = "none";
+  }
+
+  // Add event watchers
+  addEventWatcher('server', 'synch', function() {
+    treeView.refresh();
+  }, 'treeView');
+
+  treeView.refresh();
+  treeView.initDragDrop();
+};
+
+treeView.hide = function() {
+  removeEventWatchers('treeView');
+};
+
+treeView.refresh = function() {
+  var container = gebi('node-tree');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (!isNodeStructure()) {
+    container.innerHTML = '<li class="tree-empty">No data. Create a folder or task to get started.</li>';
+    return;
+  }
+
+  var rootOrder = ttData.rootOrder || [];
+
+  if (rootOrder.length === 0) {
+    container.innerHTML = '<li class="tree-empty">No items yet. Add a folder or task to get started.</li>';
+    return;
+  }
+
+  for (var i = 0; i < rootOrder.length; i++) {
+    var nodeEl = treeView.renderNode(rootOrder[i], 0);
+    if (nodeEl) {
+      container.appendChild(nodeEl);
+    }
+  }
+};
+
+treeView.renderNode = function(nodeId, depth) {
+  var node = getNode(nodeId);
+  if (!node) return null;
+
+  // Apply filters
+  if (treeView.hideCompleted && node.type === 'task' && node.status === 'completed') {
+    return null;
+  }
+
+  if (treeView.searchFilter) {
+    var searchLower = treeView.searchFilter.toLowerCase();
+    var nameMatches = node.name.toLowerCase().indexOf(searchLower) !== -1;
+
+    if (node.type === 'folder') {
+      // Show folder if it has matching descendants
+      var descendants = getNodeDescendants(nodeId);
+      var hasMatch = nameMatches;
+      for (var d = 0; d < descendants.length && !hasMatch; d++) {
+        if (descendants[d].name.toLowerCase().indexOf(searchLower) !== -1) {
+          hasMatch = true;
+        }
+      }
+      if (!hasMatch) return null;
+    } else {
+      if (!nameMatches) return null;
+    }
+  }
+
+  var li = document.createElement('li');
+  li.className = 'tree-node';
+  li.setAttribute('data-node-id', nodeId);
+  li.setAttribute('data-depth', depth);
+  li.setAttribute('draggable', 'true');
+
+  var nodeDiv = document.createElement('div');
+  nodeDiv.className = 'tree-node-content';
+  if (node.type === 'task' && node.status === 'completed') {
+    nodeDiv.className += ' completed';
+  }
+  nodeDiv.style.paddingLeft = (depth * 20 + 10) + 'px';
+
+  // Build node content
+  var html = '';
+
+  // Expand/collapse toggle for folders
+  if (node.type === 'folder') {
+    var hasChildren = node.childOrder && node.childOrder.length > 0;
+    if (hasChildren) {
+      var toggleIcon = node.collapsed ? 'fa-caret-right' : 'fa-caret-down';
+      html += '<span class="tree-toggle" onclick="treeView.toggle(\'' + nodeId + '\')">';
+      html += '<i class="fa ' + toggleIcon + '"></i></span>';
+    } else {
+      html += '<span class="tree-toggle-placeholder"></span>';
+    }
+    html += '<i class="fa fa-folder-o tree-icon folder-icon"></i>';
+  } else {
+    html += '<span class="tree-toggle-placeholder"></span>';
+
+    // Checkbox for tasks
+    var checked = node.status === 'completed' ? 'checked' : '';
+    html += '<input type="checkbox" class="tree-checkbox" ' + checked + ' onclick="treeView.toggleComplete(\'' + nodeId + '\', this)" />';
+  }
+
+  // Star for tasks
+  if (node.type === 'task') {
+    var starClass = node.starred === '1' ? 'starred' : '';
+    html += '<i class="fa fa-star tree-star ' + starClass + '" onclick="treeView.toggleStar(\'' + nodeId + '\')"></i>';
+  }
+
+  // Name
+  var displayName = escapeHtml(truncate(node.name, 60));
+  html += '<span class="tree-name" ondblclick="treeView.editName(\'' + nodeId + '\')">' + displayName + '</span>';
+
+  // Time display
+  var nodeTime = calculateNodeTime(nodeId);
+  if (nodeTime > 0) {
+    html += '<span class="tree-time">' + prettyTime(nodeTime) + '</span>';
+  }
+
+  // Estimate for tasks
+  if (node.type === 'task' && node.estimate > 0) {
+    html += '<span class="tree-estimate">' + prettyTime(node.estimate) + '</span>';
+  }
+
+  // Actions
+  html += '<span class="tree-actions">';
+  if (node.type === 'task') {
+    html += '<i class="fa fa-play-circle tree-play" onclick="treeView.startSession(\'' + nodeId + '\')" title="Start session"></i>';
+  }
+  html += '<i class="fa fa-plus tree-add-child" onclick="treeView.showAddForm(\'' + nodeId + '\')" title="Add child"></i>';
+  html += '<i class="fa fa-pencil tree-edit" onclick="treeView.showEditForm(\'' + nodeId + '\')" title="Edit"></i>';
+  html += '</span>';
+
+  nodeDiv.innerHTML = html;
+  li.appendChild(nodeDiv);
+
+  // Render children if not collapsed
+  if (node.type === 'folder' && !node.collapsed && node.childOrder && node.childOrder.length > 0) {
+    var childUl = document.createElement('ul');
+    childUl.className = 'tree-children';
+
+    for (var i = 0; i < node.childOrder.length; i++) {
+      var childEl = treeView.renderNode(node.childOrder[i], depth + 1);
+      if (childEl) {
+        childUl.appendChild(childEl);
+      }
+    }
+
+    if (childUl.children.length > 0) {
+      li.appendChild(childUl);
+    }
+  }
+
+  return li;
+};
+
+treeView.toggle = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  node.collapsed = !node.collapsed;
+  ttSave();
+  treeView.refresh();
+};
+
+treeView.toggleComplete = function(nodeId, checkbox) {
+  var node = getNode(nodeId);
+  if (!node || node.type !== 'task') return;
+
+  node.status = checkbox.checked ? 'completed' : 'inProcess';
+  ttSave();
+  emitEvent('task', 'updated');
+
+  if (treeView.hideCompleted && node.status === 'completed') {
+    treeView.refresh();
+  }
+};
+
+treeView.toggleStar = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node || node.type !== 'task') return;
+
+  node.starred = node.starred === '1' ? '0' : '1';
+  ttSave();
+  emitEvent('task', 'updated');
+  treeView.refresh();
+};
+
+treeView.addFolder = function(parentId) {
+  treeView.addingTo = parentId || null;
+  treeView.addingType = 'folder';
+  treeView.showAddInput();
+};
+
+treeView.addTask = function(parentId) {
+  treeView.addingTo = parentId || null;
+  treeView.addingType = 'task';
+  treeView.showAddInput();
+};
+
+treeView.showAddForm = function(parentId) {
+  // Show a mini dropdown to choose folder or task
+  treeView.addingTo = parentId;
+  treeView.showAddInput();
+};
+
+treeView.showAddInput = function() {
+  var container = gebi('tree-add-form');
+  if (!container) return;
+
+  container.style.display = 'block';
+  var input = gebi('tree-add-input');
+  if (input) {
+    input.value = '';
+    input.placeholder = 'New ' + treeView.addingType + ' name...';
+    input.focus();
+  }
+};
+
+treeView.hideAddInput = function() {
+  var container = gebi('tree-add-form');
+  if (container) {
+    container.style.display = 'none';
+  }
+  treeView.addingTo = null;
+};
+
+treeView.saveNewNode = function() {
+  var input = gebi('tree-add-input');
+  if (!input) return;
+
+  var name = input.value.trim();
+  if (!name) {
+    treeView.hideAddInput();
+    return;
+  }
+
+  // Parse estimate if task
+  var estimate = 0;
+  if (treeView.addingType === 'task') {
+    var parsed = parseEstimateFromInput(name);
+    name = parsed.name;
+    estimate = parsed.estimate;
+  }
+
+  var nodeData = {
+    name: name,
+    type: treeView.addingType,
+    estimate: estimate
+  };
+
+  createNode(treeView.addingTo, nodeData);
+  treeView.hideAddInput();
+  treeView.refresh();
+
+  emitEvent('task', 'added');
+  setFeedback(treeView.addingType.charAt(0).toUpperCase() + treeView.addingType.slice(1) + ' created');
+};
+
+treeView.saveNewTaskFromToday = function() {
+  var input = gebi('today-new-task-input');
+  if (!input) return;
+
+  var name = input.value.trim();
+  if (!name) return;
+
+  // Parse estimate
+  var parsed = parseEstimateFromInput(name);
+
+  var nodeData = {
+    name: parsed.name,
+    type: 'task',
+    estimate: parsed.estimate,
+    starred: '1' // Tasks from today view are starred by default
+  };
+
+  createNode(null, nodeData); // Add at root level
+  input.value = '';
+
+  emitEvent('task', 'added');
+  setFeedback('Task created');
+};
+
+treeView.editName = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  var newName = prompt('Edit name:', node.name);
+  if (newName !== null && newName.trim() !== '') {
+    node.name = newName.trim();
+    ttSave();
+    treeView.refresh();
+    emitEvent('task', 'updated');
+  }
+};
+
+treeView.showEditForm = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  // Build edit form
+  var html = '<h3>Edit ' + node.type + '</h3>';
+  html += '<div class="edit-field">Name <input type="text" id="node-name-input" value="' + escapeHtml(node.name) + '" /></div>';
+
+  if (node.type === 'task') {
+    html += '<div class="edit-field">Status <select id="node-status-input">';
+    var statuses = {new: 'New', inProcess: 'In Process', completed: 'Completed', onHold: 'On Hold'};
+    for (var s in statuses) {
+      var sel = node.status === s ? 'selected' : '';
+      html += '<option value="' + s + '" ' + sel + '>' + statuses[s] + '</option>';
+    }
+    html += '</select></div>';
+
+    html += '<div class="edit-field">Priority <select id="node-priority-input">';
+    for (var p = 1; p <= 5; p++) {
+      var sel = node.priority == p ? 'selected' : '';
+      html += '<option value="' + p + '" ' + sel + '>' + p + '</option>';
+    }
+    html += '</select></div>';
+
+    html += '<div class="edit-field">Estimate (min) <input type="text" id="node-estimate-input" value="' + Math.round((node.estimate || 0) / 60) + '" /></div>';
+
+    html += '<div class="edit-field">Billable <select id="node-billable-input">';
+    html += '<option value="1"' + (node.billable === '1' ? ' selected' : '') + '>Yes</option>';
+    html += '<option value="0"' + (node.billable === '0' ? ' selected' : '') + '>No</option>';
+    html += '</select></div>';
+
+    html += '<div class="edit-field">Notes <textarea id="node-notes-input">' + escapeHtml(node.notes || '') + '</textarea></div>';
+  }
+
+  html += '<div>';
+  html += '<a class="button" onclick="treeView.saveEditForm(\'' + nodeId + '\')">Save</a>';
+  html += '<a class="button" onclick="cancelEditForm()">Cancel</a>';
+  html += '<a class="button red" onclick="treeView.deleteNode(\'' + nodeId + '\')">Delete</a>';
+  html += '</div>';
+
+  gebi("edit-popup").innerHTML = html;
+  $("#modal-bg").show();
+  $("#edit-popup").show();
+};
+
+treeView.saveEditForm = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  node.name = gebi('node-name-input').value.trim() || node.name;
+
+  if (node.type === 'task') {
+    node.status = gebi('node-status-input').value;
+    node.priority = gebi('node-priority-input').value;
+    node.estimate = parseFloat(gebi('node-estimate-input').value || 0) * 60;
+    node.billable = gebi('node-billable-input').value;
+    node.notes = gebi('node-notes-input').value;
+  }
+
+  ttSave();
+  cancelEditForm();
+  treeView.refresh();
+  emitEvent('task', 'updated');
+  setFeedback('Item updated');
+};
+
+treeView.deleteNode = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  var hasChildren = node.childOrder && node.childOrder.length > 0;
+  var msg = 'Delete "' + node.name + '"?';
+  if (hasChildren) {
+    msg += '\n\nThis will also delete all children.';
+  }
+
+  if (confirm(msg)) {
+    deleteNode(nodeId, true);
+    cancelEditForm();
+    treeView.refresh();
+    emitEvent('task', 'deleted');
+    setFeedback('Item deleted');
+  }
+};
+
+treeView.startSession = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node || node.type !== 'task') {
+    setFeedback('Can only track time on tasks', 'error');
+    return;
+  }
+
+  current_node = node;
+  current_node_path = getNodePath(nodeId);
+
+  startNodeSession();
+};
+
+treeView.filterBySearch = function() {
+  var input = gebi('tree-search');
+  treeView.searchFilter = input ? input.value : '';
+  treeView.refresh();
+};
+
+treeView.toggleHideCompleted = function() {
+  var checkbox = gebi('tree-hide-completed');
+  treeView.hideCompleted = checkbox ? checkbox.checked : true;
+  treeView.refresh();
+};
+
+// Drag and drop
+treeView.initDragDrop = function() {
+  var container = gebi('node-tree');
+  if (!container) return;
+
+  container.addEventListener('dragstart', function(e) {
+    var li = e.target.closest('.tree-node');
+    if (li) {
+      treeView.draggedNodeId = li.getAttribute('data-node-id');
+      e.dataTransfer.effectAllowed = 'move';
+      li.classList.add('dragging');
+    }
+  });
+
+  container.addEventListener('dragend', function(e) {
+    var li = e.target.closest('.tree-node');
+    if (li) {
+      li.classList.remove('dragging');
+    }
+    treeView.draggedNodeId = null;
+
+    // Remove all drop indicators
+    var indicators = container.querySelectorAll('.drop-target, .drop-before, .drop-after');
+    for (var i = 0; i < indicators.length; i++) {
+      indicators[i].classList.remove('drop-target', 'drop-before', 'drop-after');
+    }
+  });
+
+  container.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    var li = e.target.closest('.tree-node');
+    if (!li || li.getAttribute('data-node-id') === treeView.draggedNodeId) return;
+
+    // Remove existing indicators
+    var indicators = container.querySelectorAll('.drop-target, .drop-before, .drop-after');
+    for (var i = 0; i < indicators.length; i++) {
+      indicators[i].classList.remove('drop-target', 'drop-before', 'drop-after');
+    }
+
+    var rect = li.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var height = rect.height;
+
+    if (y < height * 0.25) {
+      li.classList.add('drop-before');
+    } else if (y > height * 0.75) {
+      li.classList.add('drop-after');
+    } else {
+      li.classList.add('drop-target');
+    }
+  });
+
+  container.addEventListener('drop', function(e) {
+    e.preventDefault();
+    var li = e.target.closest('.tree-node');
+    if (!li || !treeView.draggedNodeId) return;
+
+    var targetId = li.getAttribute('data-node-id');
+    if (targetId === treeView.draggedNodeId) return;
+
+    var targetNode = getNode(targetId);
+    if (!targetNode) return;
+
+    var rect = li.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var height = rect.height;
+
+    if (y < height * 0.25) {
+      // Insert before target
+      var parentId = targetNode.parentId;
+      var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
+      var targetIndex = siblings.indexOf(targetId);
+      moveNode(treeView.draggedNodeId, parentId, targetIndex);
+    } else if (y > height * 0.75) {
+      // Insert after target
+      var parentId = targetNode.parentId;
+      var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
+      var targetIndex = siblings.indexOf(targetId);
+      moveNode(treeView.draggedNodeId, parentId, targetIndex + 1);
+    } else {
+      // Drop as child of target (only if target is folder)
+      if (targetNode.type === 'folder') {
+        moveNode(treeView.draggedNodeId, targetId, -1);
+        // Expand the folder
+        targetNode.collapsed = false;
+        ttSave();
+      } else {
+        // Can't drop into a task, insert after instead
+        var parentId = targetNode.parentId;
+        var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
+        var targetIndex = siblings.indexOf(targetId);
+        moveNode(treeView.draggedNodeId, parentId, targetIndex + 1);
+      }
+    }
+
+    treeView.refresh();
+    setFeedback('Item moved');
+  });
+};
+
+
+/* ######################### NODE SESSION FUNCTIONS ######################### */
+
+/**
+ * Start a session on current_node
+ */
+function startNodeSession() {
+  if (!current_node || current_node.type !== 'task') {
+    setFeedback('Can only track time on tasks', 'error');
+    return;
+  }
+
+  startDate = moment();
+
+  // Reset estimate alert flags
+  estimateAlert90Triggered = false;
+  estimateAlert100Triggered = false;
+
+  current_session = {
+    id: newId(),
+    start_time: startDate.format("YYYY-MM-DD HH:mm:ss")
+  };
+
+  // Add session to node
+  if (!current_node.sessions) current_node.sessions = {};
+  current_node.sessions[current_session.id] = current_session;
+
+  // Save current node ID
+  localStorage.ttCurrentNodeId = current_node.id;
+  localStorage.ttSessionId = current_session.id;
+
+  counterId = setInterval(incrementCurrentDuration, 1000);
+  showNodeInSession();
+  ttSave();
+}
+
+/**
+ * Continue an existing session on current_node
+ */
+function continueNodeSession() {
+  if (!current_node || !current_session) return;
+
+  startDate = moment(current_session.start_time);
+  counterId = setInterval(incrementCurrentDuration, 1000);
+  showNodeInSession();
+}
+
+/**
+ * Show in-session UI for node-based tracking
+ */
+function showNodeInSession() {
+  // Build path display
+  var pathStr = '';
+  for (var i = 0; i < current_node_path.length; i++) {
+    if (i > 0) pathStr += ' > ';
+    pathStr += '<b>' + escapeHtml(current_node_path[i].name) + '</b>';
+  }
+
+  // Build estimate display
+  var estimateHtml = '';
+  if (current_node.estimate && current_node.estimate > 0) {
+    estimateHtml = '<div id="session-estimate">' +
+      '<span class="estimate-label">EST</span>' +
+      '<span class="estimate-value">' + prettyTime(current_node.estimate) + '</span>' +
+      '</div>';
+  }
+
+  var html = '<div class="centered-box">' +
+    '<div id="current-info">' + pathStr + '</div>' +
+    '<div id="current_duration"><span style="color:#dddddd">00:00:00</span></div>' +
+    estimateHtml +
+    '<div id="session-buttons">' +
+      '<a class="button session-end-btn" onclick="endNodeSession(false)">End&nbsp;Session</a>' +
+      '<a class="button session-complete-btn" onclick="endNodeSession(true)">Task&nbsp;Complete</a>' +
+    '</div>' +
+    '<input type="text" id="session-notes-input" placeholder="Add notes..." />' +
+  '</div>';
+
+  gebi('active-session').innerHTML = html;
+  gebi('active-session').style.display = 'block';
+
+  setTimeout(fitDurationText, 10);
+  window.addEventListener('resize', fitDurationText);
+}
+
+/**
+ * End session on current_node
+ */
+function endNodeSession(markComplete) {
+  clearInterval(counterId);
+  window.removeEventListener('resize', fitDurationText);
+
+  current_session.end_time = moment().format("YYYY-MM-DD HH:mm:ss");
+  current_session.notes = $("#session-notes-input").val();
+
+  var task_complete_feedback = '';
+  var feedback_class = 'notice';
+
+  if (markComplete) {
+    current_node.status = 'completed';
+    task_complete_feedback = ' <b>Task complete!</b>';
+    feedback_class = 'success';
+  } else {
+    if (current_node.status === 'new') {
+      current_node.status = 'inProcess';
+    }
+  }
+
+  var pastSessionId = current_session.id;
+  current_session = '';
+  delete localStorage.ttSessionId;
+
+  ttSave();
+
+  gebi('active-session').style.display = 'none';
+  document.title = 'Taakl';
+
+  var edit_button = '<form style="display:inline"><a class="button" onclick="treeView.showEditForm(\'' + current_node.id + '\')">Edit task</a></form>';
+  setFeedback('Session Ended. Duration was ' + currentDuration + task_complete_feedback + edit_button, feedback_class);
+
+  treeView.refresh();
+
+  emitEvent('session', 'ended');
+
+  if (getSetting("auto_synch") == "yes" && isLoggedIn()) {
+    synchToServer();
+  }
+}
+
+
 /* ################################ ANALYZE VIEW ################################ */
 
 analyze.show = function(){
@@ -3353,59 +4050,114 @@ todayView.filter = function(){
   // Track task IDs already categorized to avoid duplicates
   var categorizedIds = {};
 
-  loopData([], function(){
-    if(this.level == "task"){
-      var task = this.task;
+  if (isNodeStructure()) {
+    // v2: Node-based structure
+    var allTasks = getAllTaskNodes();
+
+    for (var i = 0; i < allTasks.length; i++) {
+      var task = allTasks[i];
 
       // Skip completed tasks
-      if(task.status == "completed"){
-        return;
+      if (task.status === 'completed') {
+        continue;
       }
 
       // Add metadata for display
       task.truncateName = truncate(task.name, 55);
-      task.client = this.client.name;
-      task.project = this.project.name;
 
-      if(task.project && task.client){
-        task.metaParentage = "<span>" + task.client + " > " + task.project + "</span>";
-      } else if(task.project){
-        task.metaParentage = "<span>" + task.project + "</span>";
+      // Build path for display
+      var path = getNodePath(task.id);
+      if (path.length > 1) {
+        var pathNames = [];
+        for (var p = 0; p < path.length - 1; p++) {
+          pathNames.push(path[p].name);
+        }
+        task.metaParentage = '<span>' + escapeHtml(pathNames.join(' > ')) + '</span>';
       } else {
-        task.metaParentage = "";
+        task.metaParentage = '';
       }
 
       // Calculate time
-      task.time = 0;
-      for(var sid in task.sessions){
-        var session = task.sessions[sid];
-        if(session.start_time && session.end_time){
-          task.time += timeDiffSecsFromString(session.start_time, session.end_time);
-        }
-      }
-      task.metaPrettyTime = (task.time > 0) ? " | " + prettyTime(task.time) : "";
+      task.time = calculateNodeTime(task.id);
+      task.metaPrettyTime = (task.time > 0) ? ' | ' + prettyTime(task.time) : '';
 
       // Check for morning tasks (#daily + #morning in name)
-      if(taskHasTags(task, ["daily", "morning"])){
+      if (taskHasTags(task, ['daily', 'morning'])) {
         todayView.morningTasks.push(task);
         categorizedIds[task.id] = true;
-        return;
+        continue;
       }
 
       // Check for evening tasks (#daily + #evening in name)
-      if(taskHasTags(task, ["daily", "evening"])){
+      if (taskHasTags(task, ['daily', 'evening'])) {
         todayView.eveningTasks.push(task);
         categorizedIds[task.id] = true;
-        return;
+        continue;
       }
 
       // Check for starred tasks (not already categorized)
-      if(task.starred == "1" && !categorizedIds[task.id]){
+      if (task.starred === '1' && !categorizedIds[task.id]) {
         todayView.starredTasks.push(task);
         categorizedIds[task.id] = true;
       }
     }
-  });
+
+  } else {
+    // v1: Legacy client/project/task structure
+    loopData([], function(){
+      if(this.level == "task"){
+        var task = this.task;
+
+        // Skip completed tasks
+        if(task.status == "completed"){
+          return;
+        }
+
+        // Add metadata for display
+        task.truncateName = truncate(task.name, 55);
+        task.client = this.client.name;
+        task.project = this.project.name;
+
+        if(task.project && task.client){
+          task.metaParentage = "<span>" + task.client + " > " + task.project + "</span>";
+        } else if(task.project){
+          task.metaParentage = "<span>" + task.project + "</span>";
+        } else {
+          task.metaParentage = "";
+        }
+
+        // Calculate time
+        task.time = 0;
+        for(var sid in task.sessions){
+          var session = task.sessions[sid];
+          if(session.start_time && session.end_time){
+            task.time += timeDiffSecsFromString(session.start_time, session.end_time);
+          }
+        }
+        task.metaPrettyTime = (task.time > 0) ? " | " + prettyTime(task.time) : "";
+
+        // Check for morning tasks (#daily + #morning in name)
+        if(taskHasTags(task, ["daily", "morning"])){
+          todayView.morningTasks.push(task);
+          categorizedIds[task.id] = true;
+          return;
+        }
+
+        // Check for evening tasks (#daily + #evening in name)
+        if(taskHasTags(task, ["daily", "evening"])){
+          todayView.eveningTasks.push(task);
+          categorizedIds[task.id] = true;
+          return;
+        }
+
+        // Check for starred tasks (not already categorized)
+        if(task.starred == "1" && !categorizedIds[task.id]){
+          todayView.starredTasks.push(task);
+          categorizedIds[task.id] = true;
+        }
+      }
+    });
+  }
 };
 
 todayView.createTaskElement = function(task){
@@ -3413,30 +4165,68 @@ todayView.createTaskElement = function(task){
   taskDiv.className = "today-task-item";
   taskDiv.setAttribute("data-task-id", task.id);
 
+  // Determine which handlers to use based on data structure
+  var isV2 = isNodeStructure();
+
   // Checkbox for completion
   var checkedAttr = (task.status == "completed") ? "checked" : "";
+  var completeHandler = isV2
+    ? "todayView.toggleNodeComplete('" + task.id + "', this)"
+    : "setTaskComplete('" + task.id + "', this)";
   var checkCompleted = "<input type='checkbox' class='task-checkbox' " +
-    checkedAttr + " onChange=\"setTaskComplete('" + task.id + "', this)\" />";
+    checkedAttr + " onchange=\"" + completeHandler + "\" />";
 
   // Star icon
   var starClass = (task.starred == "1") ? "starred" : "";
+  var starHandler = isV2
+    ? "todayView.toggleNodeStar('" + task.id + "')"
+    : "toggleTaskStar('" + task.id + "')";
   var starIcon = "<i class='fa fa-star task-star " + starClass +
-    "' onClick=\"toggleTaskStar('" + task.id + "')\"></i>";
+    "' onclick=\"" + starHandler + "\"></i>";
 
   // Play button
-  var playIcon = "<i onClick=\"startGeneralSession('" + task.id +
-    "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
+  var playHandler = isV2
+    ? "treeView.startSession('" + task.id + "')"
+    : "startGeneralSession('" + task.id + "')";
+  var playIcon = "<i onclick=\"" + playHandler +
+    "\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
+
+  // Edit handler
+  var editHandler = isV2
+    ? "treeView.showEditForm('" + task.id + "')"
+    : "showGeneralEditForm('task','" + task.id + "')";
 
   taskDiv.innerHTML =
-    "<div class='today-task-content' onDblClick=\"showGeneralEditForm('task','" + task.id + "')\">" +
+    "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
       "<div class='today-task-main'>" +
-        checkCompleted + " " + starIcon + " " + task.truncateName +
+        checkCompleted + " " + starIcon + " " + escapeHtml(task.truncateName) +
         "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + "</span>" +
       "</div>" +
       "<div class='today-task-actions'>" + playIcon + "</div>" +
     "</div>";
 
   return taskDiv;
+};
+
+// Helper functions for today view node operations
+todayView.toggleNodeComplete = function(nodeId, checkbox) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  node.status = checkbox.checked ? 'completed' : 'inProcess';
+  ttSave();
+  todayView.update();
+  emitEvent('task', 'updated');
+};
+
+todayView.toggleNodeStar = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  node.starred = node.starred === '1' ? '0' : '1';
+  ttSave();
+  todayView.update();
+  emitEvent('task', 'updated');
 };
 
 todayView.refresh = function(){
@@ -4292,34 +5082,81 @@ function nodeRequest(direction,url){
 function makeFlatData(){
   flatData = {};
 
-  for (client_id in ttData.clients){
+  if (isNodeStructure()) {
+    // v2: Node-based structure
+    var allTasks = getAllTaskNodes();
 
-    if(typeof ttData.clients[client_id].projects == "object"){
-       projects = ttData.clients[client_id].projects;
-       for (project_id in projects){
-        if(typeof projects[project_id].tasks == "object"){
-          tasks = projects[project_id].tasks;
-          for (task_id in tasks){
-            if(typeof tasks[task_id].sessions == "object" && getMemberCount(tasks[task_id].sessions) > 0){
-              for (session_id in tasks[task_id].sessions){
-                session = tasks[task_id].sessions[session_id];
+    for (var i = 0; i < allTasks.length; i++) {
+      var task = allTasks[i];
 
-                flatData[session_id] = {
+      if (task.sessions && getMemberCount(task.sessions) > 0) {
+        // Build path for context
+        var path = getNodePath(task.id);
+        var pathNames = [];
+        for (var p = 0; p < path.length; p++) {
+          pathNames.push(path[p].name);
+        }
 
-                  "client_id": client_id,
-                  "client": ttData.clients[client_id].name,
-                  "project" : projects[project_id].name,
-                  "project_id" : project_id,
-                  "task" : tasks[task_id].name,
-                  "task_id" : task_id,
-                  "billable" : tasks[task_id].billable,
-                  "start_time" :  session.start_time,
-                  "end_time" :  session.end_time,
-                  "session_id" :  session_id,
-                  "duration" : timeDiffSecsFromString(session.start_time,session.end_time),
-                  "durationHMS" : timeFromSeconds(timeDiffSecsFromString(session.start_time,session.end_time))
+        // Use path parts for client/project columns
+        var clientName = pathNames.length > 1 ? pathNames[0] : '';
+        var projectName = pathNames.length > 2 ? pathNames.slice(1, -1).join(' > ') : (pathNames.length > 1 ? '' : '');
+        var taskName = pathNames[pathNames.length - 1];
 
-                };
+        for (var session_id in task.sessions) {
+          var session = task.sessions[session_id];
+
+          if (session.start_time && session.end_time) {
+            flatData[session_id] = {
+              "client_id": path.length > 1 ? path[0].id : '',
+              "client": clientName,
+              "project": projectName,
+              "project_id": path.length > 2 ? path[path.length - 2].id : '',
+              "task": taskName,
+              "task_id": task.id,
+              "billable": task.billable,
+              "start_time": session.start_time,
+              "end_time": session.end_time,
+              "session_id": session_id,
+              "duration": timeDiffSecsFromString(session.start_time, session.end_time),
+              "durationHMS": timeFromSeconds(timeDiffSecsFromString(session.start_time, session.end_time)),
+              "node_path": pathNames.join(' > ')
+            };
+          }
+        }
+      }
+    }
+
+  } else {
+    // v1: Legacy client/project/task structure
+    for (client_id in ttData.clients){
+
+      if(typeof ttData.clients[client_id].projects == "object"){
+         projects = ttData.clients[client_id].projects;
+         for (project_id in projects){
+          if(typeof projects[project_id].tasks == "object"){
+            tasks = projects[project_id].tasks;
+            for (task_id in tasks){
+              if(typeof tasks[task_id].sessions == "object" && getMemberCount(tasks[task_id].sessions) > 0){
+                for (session_id in tasks[task_id].sessions){
+                  session = tasks[task_id].sessions[session_id];
+
+                  flatData[session_id] = {
+
+                    "client_id": client_id,
+                    "client": ttData.clients[client_id].name,
+                    "project" : projects[project_id].name,
+                    "project_id" : project_id,
+                    "task" : tasks[task_id].name,
+                    "task_id" : task_id,
+                    "billable" : tasks[task_id].billable,
+                    "start_time" :  session.start_time,
+                    "end_time" :  session.end_time,
+                    "session_id" :  session_id,
+                    "duration" : timeDiffSecsFromString(session.start_time,session.end_time),
+                    "durationHMS" : timeFromSeconds(timeDiffSecsFromString(session.start_time,session.end_time))
+
+                  };
+                }
               }
             }
           }
@@ -4555,6 +5392,330 @@ function deleteItemById(type,id){
         }
       });
     }
+}
+
+
+/* ######################### NODE-BASED DATA FUNCTIONS (v2) ######################### */
+
+/**
+ * Get node by ID
+ * @param {string} id - Node ID
+ * @returns {object|null} - Node object or null if not found
+ */
+function getNode(id) {
+  if (!ttData.nodes || !id) return null;
+  return ttData.nodes[id] || null;
+}
+
+/**
+ * Get array of ancestor nodes from root to the specified node (inclusive)
+ * @param {string} id - Node ID
+ * @returns {array} - Array of node objects from root to node
+ */
+function getNodePath(id) {
+  var path = [];
+  var node = getNode(id);
+
+  while (node) {
+    path.unshift(node);
+    if (node.parentId) {
+      node = getNode(node.parentId);
+    } else {
+      break;
+    }
+  }
+
+  return path;
+}
+
+/**
+ * Get immediate children of a node
+ * @param {string} id - Node ID (null for root)
+ * @returns {array} - Array of child node objects in order
+ */
+function getNodeChildren(id) {
+  var children = [];
+
+  if (id === null) {
+    // Return root-level nodes
+    var order = ttData.rootOrder || [];
+    for (var i = 0; i < order.length; i++) {
+      var node = getNode(order[i]);
+      if (node) children.push(node);
+    }
+  } else {
+    var parent = getNode(id);
+    if (parent && parent.childOrder) {
+      for (var i = 0; i < parent.childOrder.length; i++) {
+        var node = getNode(parent.childOrder[i]);
+        if (node) children.push(node);
+      }
+    }
+  }
+
+  return children;
+}
+
+/**
+ * Get all descendants of a node recursively
+ * @param {string} id - Node ID (null for all nodes)
+ * @param {string} type - Optional filter by type ("folder" or "task")
+ * @returns {array} - Array of descendant node objects
+ */
+function getNodeDescendants(id, type) {
+  var descendants = [];
+  var children = getNodeChildren(id);
+
+  for (var i = 0; i < children.length; i++) {
+    var child = children[i];
+
+    if (!type || child.type === type) {
+      descendants.push(child);
+    }
+
+    // Recurse into children
+    var childDescendants = getNodeDescendants(child.id, type);
+    descendants = descendants.concat(childDescendants);
+  }
+
+  return descendants;
+}
+
+/**
+ * Create a new node
+ * @param {string} parentId - Parent node ID (null for root)
+ * @param {object} data - Node data (name, type required)
+ * @returns {object} - Created node
+ */
+function createNode(parentId, data) {
+  if (!ttData.nodes) ttData.nodes = {};
+  if (!ttData.rootOrder) ttData.rootOrder = [];
+
+  var node = {
+    id: newId(),
+    name: data.name || 'New Item',
+    type: data.type || 'task',
+    parentId: parentId,
+    childOrder: [],
+    collapsed: false
+  };
+
+  // Add task-specific fields
+  if (node.type === 'task') {
+    node.status = data.status || 'new';
+    node.starred = data.starred || '0';
+    node.billable = data.billable || '1';
+    node.estimate = data.estimate || 0;
+    node.notes = data.notes || '';
+    node.due = data.due || '';
+    node.priority = data.priority || '3';
+    node.sessions = {};
+  }
+
+  // Add to nodes dictionary
+  ttData.nodes[node.id] = node;
+
+  // Add to parent's childOrder or rootOrder
+  if (parentId === null) {
+    ttData.rootOrder.push(node.id);
+  } else {
+    var parent = getNode(parentId);
+    if (parent) {
+      if (!parent.childOrder) parent.childOrder = [];
+      parent.childOrder.push(node.id);
+    }
+  }
+
+  ttSave();
+  return node;
+}
+
+/**
+ * Update node properties
+ * @param {string} id - Node ID
+ * @param {object} data - Properties to update
+ * @returns {object|null} - Updated node or null
+ */
+function updateNode(id, data) {
+  var node = getNode(id);
+  if (!node) return null;
+
+  for (var key in data) {
+    if (data.hasOwnProperty(key) && key !== 'id') {
+      node[key] = data[key];
+    }
+  }
+
+  ttSave();
+  return node;
+}
+
+/**
+ * Delete a node and optionally its children
+ * @param {string} id - Node ID
+ * @param {boolean} cascade - If true, delete children; if false, move children up
+ * @returns {boolean} - Success status
+ */
+function deleteNode(id, cascade) {
+  var node = getNode(id);
+  if (!node) return false;
+
+  if (cascade) {
+    // Delete all children recursively
+    var children = getNodeChildren(id);
+    for (var i = 0; i < children.length; i++) {
+      deleteNode(children[i].id, true);
+    }
+  } else {
+    // Move children to this node's parent
+    var children = getNodeChildren(id);
+    for (var i = 0; i < children.length; i++) {
+      children[i].parentId = node.parentId;
+      if (node.parentId === null) {
+        // Add to root
+        var idx = ttData.rootOrder.indexOf(id);
+        ttData.rootOrder.splice(idx + 1 + i, 0, children[i].id);
+      } else {
+        var parent = getNode(node.parentId);
+        if (parent) {
+          var idx = parent.childOrder.indexOf(id);
+          parent.childOrder.splice(idx + 1 + i, 0, children[i].id);
+        }
+      }
+    }
+  }
+
+  // Remove from parent's childOrder or rootOrder
+  if (node.parentId === null) {
+    var idx = ttData.rootOrder.indexOf(id);
+    if (idx > -1) ttData.rootOrder.splice(idx, 1);
+  } else {
+    var parent = getNode(node.parentId);
+    if (parent && parent.childOrder) {
+      var idx = parent.childOrder.indexOf(id);
+      if (idx > -1) parent.childOrder.splice(idx, 1);
+    }
+  }
+
+  // Delete the node
+  delete ttData.nodes[id];
+
+  ttSave();
+  return true;
+}
+
+/**
+ * Move a node to a new parent at a specific position
+ * @param {string} id - Node ID to move
+ * @param {string} newParentId - New parent ID (null for root)
+ * @param {number} index - Position in new parent's childOrder (-1 for end)
+ * @returns {boolean} - Success status
+ */
+function moveNode(id, newParentId, index) {
+  var node = getNode(id);
+  if (!node) return false;
+
+  // Prevent moving a node into itself or its descendants
+  if (newParentId !== null) {
+    var path = getNodePath(newParentId);
+    for (var i = 0; i < path.length; i++) {
+      if (path[i].id === id) return false;
+    }
+  }
+
+  // Remove from old parent
+  if (node.parentId === null) {
+    var idx = ttData.rootOrder.indexOf(id);
+    if (idx > -1) ttData.rootOrder.splice(idx, 1);
+  } else {
+    var oldParent = getNode(node.parentId);
+    if (oldParent && oldParent.childOrder) {
+      var idx = oldParent.childOrder.indexOf(id);
+      if (idx > -1) oldParent.childOrder.splice(idx, 1);
+    }
+  }
+
+  // Update node's parent
+  node.parentId = newParentId;
+
+  // Add to new parent
+  if (newParentId === null) {
+    if (index < 0 || index >= ttData.rootOrder.length) {
+      ttData.rootOrder.push(id);
+    } else {
+      ttData.rootOrder.splice(index, 0, id);
+    }
+  } else {
+    var newParent = getNode(newParentId);
+    if (newParent) {
+      if (!newParent.childOrder) newParent.childOrder = [];
+      if (index < 0 || index >= newParent.childOrder.length) {
+        newParent.childOrder.push(id);
+      } else {
+        newParent.childOrder.splice(index, 0, id);
+      }
+    }
+  }
+
+  ttSave();
+  return true;
+}
+
+/**
+ * Calculate total session time for a node (recursive for folders)
+ * @param {string} id - Node ID
+ * @returns {number} - Total time in seconds
+ */
+function calculateNodeTime(id) {
+  var node = getNode(id);
+  if (!node) return 0;
+
+  var totalTime = 0;
+
+  if (node.type === 'task') {
+    // Sum sessions for this task
+    if (node.sessions) {
+      for (var sesId in node.sessions) {
+        var session = node.sessions[sesId];
+        if (session.start_time && session.end_time) {
+          totalTime += timeDiffSecsFromString(session.start_time, session.end_time);
+        }
+      }
+    }
+  } else {
+    // Folder: sum time of all descendant tasks
+    var descendants = getNodeDescendants(id, 'task');
+    for (var i = 0; i < descendants.length; i++) {
+      totalTime += calculateNodeTime(descendants[i].id);
+    }
+  }
+
+  return totalTime;
+}
+
+/**
+ * Get all task nodes (convenience function)
+ * @returns {array} - Array of all task nodes
+ */
+function getAllTaskNodes() {
+  var tasks = [];
+  if (!ttData.nodes) return tasks;
+
+  for (var id in ttData.nodes) {
+    if (ttData.nodes[id].type === 'task') {
+      tasks.push(ttData.nodes[id]);
+    }
+  }
+
+  return tasks;
+}
+
+/**
+ * Check if data is using new node structure (v2)
+ * @returns {boolean}
+ */
+function isNodeStructure() {
+  return ttData.dataVersion === 2 && typeof ttData.nodes === 'object';
 }
 
 /* An efficient method of updating single values if the full tree is known */
