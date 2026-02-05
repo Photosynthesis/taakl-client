@@ -1000,6 +1000,11 @@ color: #000;
 .tree-bullet:hover {
   background: #eee;
   color: #666;
+  cursor: grab;
+}
+
+.tree-bullet:active {
+  cursor: grabbing;
 }
 
 .tree-bullet.has-children {

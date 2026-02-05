@@ -2999,17 +2999,63 @@ treeView.renderNode = function(container, nodeId, depth) {
   row.setAttribute('data-depth', depth);
   row.style.paddingLeft = (depth * 22) + 'px';
 
-  // Bullet/toggle
+  // Bullet/toggle (also serves as drag handle)
   var bullet = document.createElement('span');
   bullet.className = 'tree-bullet' + (hasChildren ? ' has-children' : '') + (node.collapsed ? ' collapsed' : '');
   bullet.innerHTML = hasChildren ? '&#9660;' : '&#8226;';
+  bullet.setAttribute('draggable', 'true');
   bullet.onclick = function(e) {
     e.stopPropagation();
     if (hasChildren) {
       treeView.toggle(nodeId);
     }
   };
+  bullet.ondragstart = function(e) {
+    treeView.dragState = { nodeId: nodeId };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', nodeId);
+    setTimeout(function() { row.classList.add('dragging'); }, 0);
+  };
+  bullet.ondragend = function() {
+    row.classList.remove('dragging');
+    treeView.dragClearIndicators();
+    treeView.dragState = null;
+  };
   row.appendChild(bullet);
+
+  // Drop zone handlers on the row
+  row.ondragover = function(e) {
+    if (!treeView.dragState) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    treeView.dragClearIndicators();
+
+    var rect = row.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    var h = rect.height;
+
+    if (y < h * 0.25) {
+      row.classList.add('drop-above');
+      treeView.dragState.dropType = 'above';
+    } else if (y > h * 0.75) {
+      row.classList.add('drop-below');
+      treeView.dragState.dropType = 'below';
+    } else {
+      row.classList.add('drop-into');
+      treeView.dragState.dropType = 'into';
+    }
+    treeView.dragState.dropNodeId = nodeId;
+  };
+  row.ondragleave = function(e) {
+    // Only clear if actually leaving this element
+    if (!row.contains(e.relatedTarget)) {
+      row.classList.remove('drop-above', 'drop-below', 'drop-into');
+    }
+  };
+  row.ondrop = function(e) {
+    e.preventDefault();
+    treeView.dragDrop();
+  };
 
   // Checkbox for tasks (leaf nodes)
   if (isTask) {
@@ -3349,6 +3395,53 @@ treeView.startSession = function(nodeId) {
   current_node = node;
   current_node_path = getNodePath(nodeId);
   startNodeSession();
+};
+
+// --- Drag and Drop ---
+treeView.dragState = null;
+
+treeView.dragClearIndicators = function() {
+  var rows = document.querySelectorAll('.tree-row');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].classList.remove('drop-above', 'drop-below', 'drop-into');
+  }
+};
+
+treeView.dragDrop = function() {
+  var state = treeView.dragState;
+  if (!state || !state.dropNodeId || state.nodeId === state.dropNodeId) return;
+
+  var dragId = state.nodeId;
+  var dropId = state.dropNodeId;
+  var dropType = state.dropType;
+  var dropNode = getNode(dropId);
+  if (!dropNode) return;
+
+  // Prevent dropping into own descendants
+  var path = getNodePath(dropId);
+  for (var i = 0; i < path.length; i++) {
+    if (path[i].id === dragId) return;
+  }
+
+  if (dropType === 'into') {
+    // Make it a child of the drop target
+    moveNode(dragId, dropId, 0);
+    // Expand so the moved node is visible
+    var parent = getNode(dropId);
+    if (parent) parent.collapsed = false;
+  } else {
+    // Place above or below the drop target as a sibling
+    var parentId = dropNode.parentId;
+    var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
+    var dropIdx = siblings.indexOf(dropId);
+    var insertIdx = dropType === 'below' ? dropIdx + 1 : dropIdx;
+    moveNode(dragId, parentId, insertIdx);
+  }
+
+  ttSave();
+  treeView.dragState = null;
+  treeView.refresh();
+  emitEvent('task', 'updated');
 };
 
 treeView.filterBySearch = function() {
