@@ -1061,6 +1061,11 @@ color: #000;
   color: #888;
 }
 
+.tree-meta .tree-estimate {
+  color: #aab;
+  margin-left: 5px;
+}
+
 .tree-meta .estimate {
   color: #5a9;
 }

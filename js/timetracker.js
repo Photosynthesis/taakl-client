@@ -3096,6 +3096,17 @@ treeView.renderNode = function(container, nodeId, depth) {
 
   text.onblur = function() {
     row.classList.remove('editing');
+    // Parse estimate from name (e.g. "Fix bug (30 m)" or "Fix bug 30m")
+    if (node.name) {
+      var parsed = parseEstimateFromInput(node.name);
+      if (parsed.estimate > 0) {
+        node.name = parsed.name;
+        node.estimate = parsed.estimate;
+        ttSave();
+        setTimeout(function() { treeView.refresh(); }, 10);
+        return;
+      }
+    }
     // Clean up empty nodes on blur
     if (!node.name.trim() && nodeIsTask(nodeId)) {
       // Don't delete if it's the only node
@@ -3110,12 +3121,16 @@ treeView.renderNode = function(container, nodeId, depth) {
 
   row.appendChild(text);
 
-  // Meta info (time)
+  // Meta info (time + estimate)
   var time = calculateNodeTime(nodeId);
-  if (time > 0) {
+  var estimate = node.estimate || 0;
+  if (time > 0 || estimate > 0) {
     var meta = document.createElement('span');
     meta.className = 'tree-meta';
-    meta.innerHTML = '<span class="time">' + prettyTime(time) + '</span>';
+    var parts = [];
+    if (time > 0) parts.push('<span class="time">' + prettyTime(time) + '</span>');
+    if (estimate > 0) parts.push('<span class="tree-estimate">est ' + prettyTime(estimate) + '</span>');
+    meta.innerHTML = parts.join(' ');
     row.appendChild(meta);
   }
 
@@ -3214,6 +3229,15 @@ treeView.addFirst = function() {
 treeView.addSibling = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
+
+  // Parse estimate from current node before moving on
+  if (node.name) {
+    var parsed = parseEstimateFromInput(node.name);
+    if (parsed.estimate > 0) {
+      node.name = parsed.name;
+      node.estimate = parsed.estimate;
+    }
+  }
 
   var parentId = node.parentId;
   var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
@@ -5946,26 +5970,33 @@ function timeDiffSecsFromString(dateStr1,dateStr2){
  * Returns object with cleaned name and estimate in seconds
  */
 function parseEstimateFromInput(input) {
-  var pattern = /\((\d+\.?\d*)\s*(m|min|mins|h|hr|hrs|hour|hours)\)/i;
-  var match = input.match(pattern);
+  // Match bracketed: (30 m), (2 h), (1.5 hrs), etc.
+  // Match unbracketed: 30m, 2h (number immediately followed by single h or m, no space)
+  var patterns = [
+    /\((\d+\.?\d*)\s*(m|min|mins|h|hr|hrs|hour|hours)\)/i,
+    /(\d+\.?\d*)(h|m)(?!\w)/i
+  ];
 
-  if (match) {
-    var value = parseFloat(match[1]);
-    var unit = match[2].toLowerCase();
-    var seconds = 0;
+  for (var p = 0; p < patterns.length; p++) {
+    var match = input.match(patterns[p]);
+    if (match) {
+      var value = parseFloat(match[1]);
+      var unit = match[2].toLowerCase();
+      var seconds = 0;
 
-    if (unit === 'm' || unit === 'min' || unit === 'mins') {
-      seconds = value * 60;
-    } else if (unit === 'h' || unit === 'hr' || unit === 'hrs' || unit === 'hour' || unit === 'hours') {
-      seconds = value * 3600;
+      if (unit === 'm' || unit === 'min' || unit === 'mins') {
+        seconds = value * 60;
+      } else if (unit === 'h' || unit === 'hr' || unit === 'hrs' || unit === 'hour' || unit === 'hours') {
+        seconds = value * 3600;
+      }
+
+      var cleanName = input.replace(patterns[p], '').trim();
+
+      return {
+        name: cleanName,
+        estimate: seconds
+      };
     }
-
-    var cleanName = input.replace(pattern, '').trim();
-
-    return {
-      name: cleanName,
-      estimate: seconds
-    };
   }
 
   return {
