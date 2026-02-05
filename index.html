@@ -43,18 +43,15 @@
       <div id="header">
         <h1 style="float: left;">taakl</h1>
         <div id="view-links">
-        <a href="javascript:void(0)" onClick="synchToServer()" class="view-switch"><i  style="cursor:pointer;"  class="fa fa-refresh fa-lg" id="synch-icon"></i> <span>Synch</span></a>
+        <a href="javascript:void(0)" onClick="synchToServer()" class="view-switch icon-only" title="Synch"><i class="fa fa-refresh fa-lg" id="synch-icon"></i></a>
 
-        <a href="javascript:void(0)" class="view-switch" id="settings-button" title="Settings" onClick="setView('settingsView')"><i class="fa fa-wrench fa-lg"></i> <span>Tweak</span></a>
+        <a href="javascript:void(0)" class="view-switch icon-only" id="settings-button" title="Settings" onClick="setView('settingsView')"><i class="fa fa-wrench fa-lg"></i></a>
 
-        <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i>
-  <span>Analyze</span></a> <!-- a href="javascript:void(0)" class="view-switch" id="settings-button" title="Settings" onClick="showEditForm('settings')"><i class="fa fa-wrench fa-lg"></i> Settings</a -->
+        <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i> <span>Review</span></a>
 
-        <a href="#void" class="view-switch" onClick="setView('taskList')"><i class="fa fa-clock-o fa-lg"></i><span>
-  Track</span></a>
+        <a href="#void" class="view-switch" onClick="setView('todayView')"><i class="fa fa-clock-o fa-lg"></i> <span>Do</span></a>
 
-        <a href="#void" class="view-switch" onClick="setView('todayView')"><i class="fa fa-calendar-check-o fa-lg"></i><span>
-  Today</span></a>
+        <a href="#void" class="view-switch" onClick="setView('taskList')"><i class="fa fa-list fa-lg"></i> <span>Plan</span></a>
         </div>
 
 
