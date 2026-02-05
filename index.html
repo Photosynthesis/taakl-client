@@ -115,46 +115,15 @@
       <!-- TaskList / Tree View -->
       <div id="taskList-view" class="view-container" style="display: none">
 
-        <!-- Tree controls -->
+        <!-- Minimal controls bar -->
         <div id="tree-controls">
-          <div class="tree-actions">
-            <a href="#void" onclick="treeView.addFolder(null)" class="button tree-btn">
-              <i class="fa fa-folder-o"></i> Folder
-            </a>
-            <a href="#void" onclick="treeView.addTask(null)" class="button tree-btn">
-              <i class="fa fa-plus"></i> Task
-            </a>
-          </div>
-          <div class="tree-filters">
-            <input type="text" id="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
-            <label><input type="checkbox" id="tree-hide-completed" checked onchange="treeView.toggleHideCompleted()" /> Hide completed</label>
-          </div>
+          <input type="text" id="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
+          <label class="tree-filter-label"><input type="checkbox" id="tree-hide-completed" checked onchange="treeView.toggleHideCompleted()" /> Hide done</label>
         </div>
 
-        <!-- Add form (hidden by default) -->
-        <div id="tree-add-form" style="display: none;">
-          <div class="tree-add-input-container">
-            <input type="text" id="tree-add-input" placeholder="New item name..." />
-            <div class="tree-add-type-buttons">
-              <a href="#void" onclick="treeView.addingType='folder'; gebi('tree-add-input').placeholder='New folder name...'" class="button tree-btn-small">
-                <i class="fa fa-folder-o"></i>
-              </a>
-              <a href="#void" onclick="treeView.addingType='task'; gebi('tree-add-input').placeholder='New task name...'" class="button tree-btn-small">
-                <i class="fa fa-check-square-o"></i>
-              </a>
-            </div>
-            <a href="#void" onclick="treeView.saveNewNode()" class="button tree-btn-small">
-              <i class="fa fa-floppy-o"></i>
-            </a>
-            <a href="#void" onclick="treeView.hideAddInput()" class="button tree-btn-small">
-              <i class="fa fa-times"></i>
-            </a>
-          </div>
-        </div>
-
-        <!-- Tree container -->
+        <!-- Tree container - outliner style -->
         <div id="tree-container">
-          <ul id="node-tree" class="node-tree"></ul>
+          <div id="node-tree" class="node-tree"></div>
         </div>
 
         <!-- Legacy task list (kept for backward compat, hidden) -->

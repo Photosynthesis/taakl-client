@@ -31,7 +31,7 @@ var currentDuration;
 var defaultSettings = {
   top_level_title : "Client",
   show_billability : true,
-  auto_synch : true,
+  auto_synch : false,
   reminder_interval : false,
   reminder_title : "Pomodoro Complete!",
   reminder_message : "Please take a five minute break. <b>Breathe, stretch, look around!</b>",
@@ -757,11 +757,7 @@ function ttInit(){
     if(!localStorage.ttData){
       // Fresh start - initialize with v2 node structure
       initFreshData();
-
-      // Show login/register modal for new users
-      showAuthModal();
-      return;
-
+      // Don't return early - continue to set up the view
     }else{
       ttData = JSON.parse(localStorage.ttData);
 
@@ -2896,32 +2892,35 @@ taskList.toggleStarFilter = function(){
 }
 
 
-/* ################################ TREE VIEW (v2) ################################ */
+/* ################################ TREE VIEW (v2) - Outliner Style ################################ */
 
 var treeView = {};
 
 // State
 treeView.searchFilter = '';
 treeView.hideCompleted = true;
-treeView.selectedNodeId = null;
-treeView.draggedNodeId = null;
-treeView.addingTo = null; // parent ID for new node being added (null = root)
-treeView.addingType = 'task'; // 'task' or 'folder'
+treeView.focusedNodeId = null;
+
+/**
+ * Check if a node is a "task" (leaf node with no children)
+ * A node is a task if it has no children. Otherwise it's a folder.
+ */
+function nodeIsTask(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return false;
+  return !node.childOrder || node.childOrder.length === 0;
+}
 
 treeView.show = function() {
   // Hide legacy client/project controls
-  var clientProjectControls = gebi("client-project-controls");
-  if (clientProjectControls) {
-    clientProjectControls.style.display = "none";
-  }
+  var controls = gebi("client-project-controls");
+  if (controls) controls.style.display = "none";
 
-  // Add event watchers
   addEventWatcher('server', 'synch', function() {
     treeView.refresh();
   }, 'treeView');
 
   treeView.refresh();
-  treeView.initDragDrop();
 };
 
 treeView.hide = function() {
@@ -2935,145 +2934,383 @@ treeView.refresh = function() {
   container.innerHTML = '';
 
   if (!isNodeStructure()) {
-    container.innerHTML = '<li class="tree-empty">No data. Create a folder or task to get started.</li>';
+    container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
+    container.onclick = function() { treeView.addFirst(); };
     return;
   }
 
   var rootOrder = ttData.rootOrder || [];
 
   if (rootOrder.length === 0) {
-    container.innerHTML = '<li class="tree-empty">No items yet. Add a folder or task to get started.</li>';
+    container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
+    container.onclick = function() { treeView.addFirst(); };
     return;
   }
 
+  container.onclick = null;
+
+  // Render all root nodes
   for (var i = 0; i < rootOrder.length; i++) {
-    var nodeEl = treeView.renderNode(rootOrder[i], 0);
-    if (nodeEl) {
-      container.appendChild(nodeEl);
+    treeView.renderNode(container, rootOrder[i], 0);
+  }
+
+  // Restore focus if we had one
+  if (treeView.focusedNodeId) {
+    var input = container.querySelector('[data-node-id="' + treeView.focusedNodeId + '"] .tree-text');
+    if (input) {
+      input.focus();
+      // Move cursor to end
+      var len = input.value.length;
+      input.setSelectionRange(len, len);
     }
   }
 };
 
-treeView.renderNode = function(nodeId, depth) {
+treeView.renderNode = function(container, nodeId, depth) {
   var node = getNode(nodeId);
-  if (!node) return null;
+  if (!node) return;
+
+  var isTask = nodeIsTask(nodeId);
+  var hasChildren = !isTask;
+  var isCompleted = node.status === 'completed';
 
   // Apply filters
-  if (treeView.hideCompleted && node.type === 'task' && node.status === 'completed') {
-    return null;
+  if (treeView.hideCompleted && isTask && isCompleted) {
+    // Check if any descendants match (for folders)
+    if (!hasChildren) return;
   }
 
   if (treeView.searchFilter) {
-    var searchLower = treeView.searchFilter.toLowerCase();
-    var nameMatches = node.name.toLowerCase().indexOf(searchLower) !== -1;
-
-    if (node.type === 'folder') {
-      // Show folder if it has matching descendants
-      var descendants = getNodeDescendants(nodeId);
-      var hasMatch = nameMatches;
-      for (var d = 0; d < descendants.length && !hasMatch; d++) {
-        if (descendants[d].name.toLowerCase().indexOf(searchLower) !== -1) {
-          hasMatch = true;
-        }
-      }
-      if (!hasMatch) return null;
-    } else {
-      if (!nameMatches) return null;
-    }
+    var search = treeView.searchFilter.toLowerCase();
+    var matches = node.name.toLowerCase().indexOf(search) !== -1;
+    if (!matches && !hasChildren) return;
+    // For nodes with children, we'll render and let children filter themselves
   }
 
-  var li = document.createElement('li');
-  li.className = 'tree-node';
-  li.setAttribute('data-node-id', nodeId);
-  li.setAttribute('data-depth', depth);
-  li.setAttribute('draggable', 'true');
-
-  var nodeDiv = document.createElement('div');
-  nodeDiv.className = 'tree-node-content';
-  if (node.type === 'task' && node.status === 'completed') {
-    nodeDiv.className += ' completed';
+  // Create row
+  var row = document.createElement('div');
+  var headingClass = '';
+  if (hasChildren) {
+    var level = Math.min(depth, 3) + 1; // depth 0 = h1, depth 1 = h2, ... depth 3+ = h4
+    headingClass = ' tree-h' + level;
   }
-  nodeDiv.style.paddingLeft = (depth * 20 + 10) + 'px';
+  row.className = 'tree-row' + headingClass + (isCompleted ? ' completed' : '');
+  row.setAttribute('data-node-id', nodeId);
+  row.setAttribute('data-depth', depth);
+  row.style.paddingLeft = (depth * 22) + 'px';
 
-  // Build node content
-  var html = '';
-
-  // Expand/collapse toggle for folders
-  if (node.type === 'folder') {
-    var hasChildren = node.childOrder && node.childOrder.length > 0;
+  // Bullet/toggle
+  var bullet = document.createElement('span');
+  bullet.className = 'tree-bullet' + (hasChildren ? ' has-children' : '') + (node.collapsed ? ' collapsed' : '');
+  bullet.innerHTML = hasChildren ? '&#9660;' : '&#8226;';
+  bullet.onclick = function(e) {
+    e.stopPropagation();
     if (hasChildren) {
-      var toggleIcon = node.collapsed ? 'fa-caret-right' : 'fa-caret-down';
-      html += '<span class="tree-toggle" onclick="treeView.toggle(\'' + nodeId + '\')">';
-      html += '<i class="fa ' + toggleIcon + '"></i></span>';
-    } else {
-      html += '<span class="tree-toggle-placeholder"></span>';
+      treeView.toggle(nodeId);
     }
-    html += '<i class="fa fa-folder-o tree-icon folder-icon"></i>';
-  } else {
-    html += '<span class="tree-toggle-placeholder"></span>';
+  };
+  row.appendChild(bullet);
 
-    // Checkbox for tasks
-    var checked = node.status === 'completed' ? 'checked' : '';
-    html += '<input type="checkbox" class="tree-checkbox" ' + checked + ' onclick="treeView.toggleComplete(\'' + nodeId + '\', this)" />';
+  // Checkbox for tasks (leaf nodes)
+  if (isTask) {
+    var check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'tree-check';
+    check.checked = isCompleted;
+    check.onclick = function(e) {
+      e.stopPropagation();
+      treeView.toggleComplete(nodeId, this);
+    };
+    row.appendChild(check);
   }
 
-  // Star for tasks
-  if (node.type === 'task') {
-    var starClass = node.starred === '1' ? 'starred' : '';
-    html += '<i class="fa fa-star tree-star ' + starClass + '" onclick="treeView.toggleStar(\'' + nodeId + '\')"></i>';
+  // Editable text input
+  var text = document.createElement('input');
+  text.type = 'text';
+  text.className = 'tree-text';
+  text.value = node.name;
+  text.placeholder = 'Type here...';
+  text.setAttribute('data-node-id', nodeId);
+
+  // Handle input changes
+  text.oninput = function() {
+    node.name = this.value;
+    ttSave();
+  };
+
+  // Handle keyboard
+  text.onkeydown = function(e) {
+    treeView.handleKeydown(e, nodeId, depth);
+  };
+
+  text.onfocus = function() {
+    treeView.focusedNodeId = nodeId;
+    row.classList.add('editing');
+  };
+
+  text.onblur = function() {
+    row.classList.remove('editing');
+    // Clean up empty nodes on blur
+    if (!node.name.trim() && nodeIsTask(nodeId)) {
+      // Don't delete if it's the only node
+      var siblings = node.parentId ? getNode(node.parentId).childOrder : ttData.rootOrder;
+      if (siblings.length > 1) {
+        deleteNode(nodeId, true);
+        treeView.focusedNodeId = null;
+        setTimeout(function() { treeView.refresh(); }, 10);
+      }
+    }
+  };
+
+  row.appendChild(text);
+
+  // Meta info (time)
+  var time = calculateNodeTime(nodeId);
+  if (time > 0) {
+    var meta = document.createElement('span');
+    meta.className = 'tree-meta';
+    meta.innerHTML = '<span class="time">' + prettyTime(time) + '</span>';
+    row.appendChild(meta);
   }
 
-  // Name
-  var displayName = escapeHtml(truncate(node.name, 60));
-  html += '<span class="tree-name" ondblclick="treeView.editName(\'' + nodeId + '\')">' + displayName + '</span>';
+  // Play button for tasks
+  if (isTask) {
+    var play = document.createElement('i');
+    play.className = 'fa fa-play-circle tree-play';
+    play.onclick = function(e) {
+      e.stopPropagation();
+      treeView.startSession(nodeId);
+    };
+    row.appendChild(play);
 
-  // Time display
-  var nodeTime = calculateNodeTime(nodeId);
-  if (nodeTime > 0) {
-    html += '<span class="tree-time">' + prettyTime(nodeTime) + '</span>';
+    // Star
+    var star = document.createElement('i');
+    star.className = 'fa fa-star tree-star' + (node.starred === '1' ? ' starred' : '');
+    star.onclick = function(e) {
+      e.stopPropagation();
+      treeView.toggleStar(nodeId);
+    };
+    row.appendChild(star);
   }
 
-  // Estimate for tasks
-  if (node.type === 'task' && node.estimate > 0) {
-    html += '<span class="tree-estimate">' + prettyTime(node.estimate) + '</span>';
-  }
+  container.appendChild(row);
 
-  // Actions
-  html += '<span class="tree-actions">';
-  if (node.type === 'task') {
-    html += '<i class="fa fa-play-circle tree-play" onclick="treeView.startSession(\'' + nodeId + '\')" title="Start session"></i>';
-  }
-  html += '<i class="fa fa-plus tree-add-child" onclick="treeView.showAddForm(\'' + nodeId + '\')" title="Add child"></i>';
-  html += '<i class="fa fa-pencil tree-edit" onclick="treeView.showEditForm(\'' + nodeId + '\')" title="Edit"></i>';
-  html += '</span>';
-
-  nodeDiv.innerHTML = html;
-  li.appendChild(nodeDiv);
-
-  // Render children if not collapsed
-  if (node.type === 'folder' && !node.collapsed && node.childOrder && node.childOrder.length > 0) {
-    var childUl = document.createElement('ul');
-    childUl.className = 'tree-children';
+  // Render children
+  if (hasChildren && !node.collapsed) {
+    var childContainer = document.createElement('div');
+    childContainer.className = 'tree-children';
 
     for (var i = 0; i < node.childOrder.length; i++) {
-      var childEl = treeView.renderNode(node.childOrder[i], depth + 1);
-      if (childEl) {
-        childUl.appendChild(childEl);
-      }
+      treeView.renderNode(childContainer, node.childOrder[i], depth + 1);
     }
 
-    if (childUl.children.length > 0) {
-      li.appendChild(childUl);
+    if (childContainer.children.length > 0) {
+      container.appendChild(childContainer);
+    }
+  }
+};
+
+treeView.handleKeydown = function(e, nodeId, depth) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  // Enter: Create new sibling below
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    treeView.addSibling(nodeId);
+    return;
+  }
+
+  // Tab: Indent (become child of previous sibling)
+  if (e.key === 'Tab' && !e.shiftKey) {
+    e.preventDefault();
+    treeView.indent(nodeId);
+    return;
+  }
+
+  // Shift+Tab: Outdent (move up one level)
+  if (e.key === 'Tab' && e.shiftKey) {
+    e.preventDefault();
+    treeView.outdent(nodeId);
+    return;
+  }
+
+  // Backspace on empty: Delete and focus previous
+  if (e.key === 'Backspace' && e.target.value === '') {
+    e.preventDefault();
+    treeView.deleteAndFocusPrev(nodeId);
+    return;
+  }
+
+  // Arrow Up: Focus previous node
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    treeView.focusPrev(nodeId);
+    return;
+  }
+
+  // Arrow Down: Focus next node
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    treeView.focusNext(nodeId);
+    return;
+  }
+};
+
+// Add first node when tree is empty
+treeView.addFirst = function() {
+  var node = createNode(null, { name: '', type: 'task' });
+  treeView.focusedNodeId = node.id;
+  treeView.refresh();
+};
+
+// Add sibling after current node
+treeView.addSibling = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  var parentId = node.parentId;
+  var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
+  var idx = siblings.indexOf(nodeId);
+
+  // Create new node
+  var newNode = createNode(parentId, { name: '', type: 'task' });
+
+  // Move it to right after current node
+  var newSiblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
+  var newIdx = newSiblings.indexOf(newNode.id);
+  newSiblings.splice(newIdx, 1);
+  newSiblings.splice(idx + 1, 0, newNode.id);
+
+  ttSave();
+  treeView.focusedNodeId = newNode.id;
+  treeView.refresh();
+};
+
+// Indent: Make this node a child of the previous sibling
+treeView.indent = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  var parentId = node.parentId;
+  var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
+  var idx = siblings.indexOf(nodeId);
+
+  // Can't indent first item
+  if (idx === 0) return;
+
+  var newParentId = siblings[idx - 1];
+  moveNode(nodeId, newParentId, -1);
+
+  // Expand the new parent
+  var newParent = getNode(newParentId);
+  if (newParent) newParent.collapsed = false;
+
+  ttSave();
+  treeView.focusedNodeId = nodeId;
+  treeView.refresh();
+};
+
+// Outdent: Move this node up one level
+treeView.outdent = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node || !node.parentId) return; // Can't outdent root items
+
+  var parent = getNode(node.parentId);
+  var grandparentId = parent.parentId;
+
+  // Find parent's position in grandparent
+  var parentSiblings = grandparentId ? getNode(grandparentId).childOrder : ttData.rootOrder;
+  var parentIdx = parentSiblings.indexOf(parent.id);
+
+  // Move after parent
+  moveNode(nodeId, grandparentId, parentIdx + 1);
+
+  ttSave();
+  treeView.focusedNodeId = nodeId;
+  treeView.refresh();
+};
+
+// Delete node and focus previous
+treeView.deleteAndFocusPrev = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  // Find previous node to focus
+  var prevId = treeView.getPrevNodeId(nodeId);
+
+  // Don't delete if it's the only node
+  var siblings = node.parentId ? getNode(node.parentId).childOrder : ttData.rootOrder;
+  if (siblings.length === 1 && !node.parentId) return;
+
+  deleteNode(nodeId, true);
+  treeView.focusedNodeId = prevId;
+  treeView.refresh();
+  emitEvent('task', 'deleted');
+};
+
+// Get all visible node IDs in order
+treeView.getVisibleNodeIds = function() {
+  var ids = [];
+
+  function collect(parentId) {
+    var children = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
+    if (!children) return;
+
+    for (var i = 0; i < children.length; i++) {
+      var nid = children[i];
+      var n = getNode(nid);
+      if (!n) continue;
+
+      // Skip filtered
+      if (treeView.hideCompleted && nodeIsTask(nid) && n.status === 'completed') continue;
+
+      ids.push(nid);
+
+      // Recurse if not collapsed
+      if (!nodeIsTask(nid) && !n.collapsed) {
+        collect(nid);
+      }
     }
   }
 
-  return li;
+  collect(null);
+  return ids;
+};
+
+treeView.getPrevNodeId = function(nodeId) {
+  var ids = treeView.getVisibleNodeIds();
+  var idx = ids.indexOf(nodeId);
+  return idx > 0 ? ids[idx - 1] : null;
+};
+
+treeView.getNextNodeId = function(nodeId) {
+  var ids = treeView.getVisibleNodeIds();
+  var idx = ids.indexOf(nodeId);
+  return idx < ids.length - 1 ? ids[idx + 1] : null;
+};
+
+treeView.focusPrev = function(nodeId) {
+  var prevId = treeView.getPrevNodeId(nodeId);
+  if (prevId) {
+    treeView.focusedNodeId = prevId;
+    var input = document.querySelector('[data-node-id="' + prevId + '"].tree-text');
+    if (input) input.focus();
+  }
+};
+
+treeView.focusNext = function(nodeId) {
+  var nextId = treeView.getNextNodeId(nodeId);
+  if (nextId) {
+    treeView.focusedNodeId = nextId;
+    var input = document.querySelector('[data-node-id="' + nextId + '"].tree-text');
+    if (input) input.focus();
+  }
 };
 
 treeView.toggle = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
-
   node.collapsed = !node.collapsed;
   ttSave();
   treeView.refresh();
@@ -3081,98 +3318,50 @@ treeView.toggle = function(nodeId) {
 
 treeView.toggleComplete = function(nodeId, checkbox) {
   var node = getNode(nodeId);
-  if (!node || node.type !== 'task') return;
-
+  if (!node) return;
   node.status = checkbox.checked ? 'completed' : 'inProcess';
   ttSave();
   emitEvent('task', 'updated');
-
-  if (treeView.hideCompleted && node.status === 'completed') {
+  if (treeView.hideCompleted) {
     treeView.refresh();
   }
 };
 
 treeView.toggleStar = function(nodeId) {
   var node = getNode(nodeId);
-  if (!node || node.type !== 'task') return;
-
+  if (!node) return;
   node.starred = node.starred === '1' ? '0' : '1';
   ttSave();
-  emitEvent('task', 'updated');
   treeView.refresh();
+  emitEvent('task', 'updated');
 };
 
-treeView.addFolder = function(parentId) {
-  treeView.addingTo = parentId || null;
-  treeView.addingType = 'folder';
-  treeView.showAddInput();
-};
+treeView.startSession = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
 
-treeView.addTask = function(parentId) {
-  treeView.addingTo = parentId || null;
-  treeView.addingType = 'task';
-  treeView.showAddInput();
-};
-
-treeView.showAddForm = function(parentId) {
-  // Show a mini dropdown to choose folder or task
-  treeView.addingTo = parentId;
-  treeView.showAddInput();
-};
-
-treeView.showAddInput = function() {
-  var container = gebi('tree-add-form');
-  if (!container) return;
-
-  container.style.display = 'block';
-  var input = gebi('tree-add-input');
-  if (input) {
-    input.value = '';
-    input.placeholder = 'New ' + treeView.addingType + ' name...';
-    input.focus();
-  }
-};
-
-treeView.hideAddInput = function() {
-  var container = gebi('tree-add-form');
-  if (container) {
-    container.style.display = 'none';
-  }
-  treeView.addingTo = null;
-};
-
-treeView.saveNewNode = function() {
-  var input = gebi('tree-add-input');
-  if (!input) return;
-
-  var name = input.value.trim();
-  if (!name) {
-    treeView.hideAddInput();
+  // Can only track time on leaf nodes
+  if (!nodeIsTask(nodeId)) {
+    setFeedback('Can only track time on items without children', 'error');
     return;
   }
 
-  // Parse estimate if task
-  var estimate = 0;
-  if (treeView.addingType === 'task') {
-    var parsed = parseEstimateFromInput(name);
-    name = parsed.name;
-    estimate = parsed.estimate;
-  }
-
-  var nodeData = {
-    name: name,
-    type: treeView.addingType,
-    estimate: estimate
-  };
-
-  createNode(treeView.addingTo, nodeData);
-  treeView.hideAddInput();
-  treeView.refresh();
-
-  emitEvent('task', 'added');
-  setFeedback(treeView.addingType.charAt(0).toUpperCase() + treeView.addingType.slice(1) + ' created');
+  current_node = node;
+  current_node_path = getNodePath(nodeId);
+  startNodeSession();
 };
 
+treeView.filterBySearch = function() {
+  treeView.searchFilter = gebi('tree-search').value;
+  treeView.refresh();
+};
+
+treeView.toggleHideCompleted = function() {
+  treeView.hideCompleted = gebi('tree-hide-completed').checked;
+  treeView.refresh();
+};
+
+// For today view compatibility
 treeView.saveNewTaskFromToday = function() {
   var input = gebi('today-new-task-input');
   if (!input) return;
@@ -3180,244 +3369,18 @@ treeView.saveNewTaskFromToday = function() {
   var name = input.value.trim();
   if (!name) return;
 
-  // Parse estimate
   var parsed = parseEstimateFromInput(name);
 
-  var nodeData = {
+  createNode(null, {
     name: parsed.name,
     type: 'task',
     estimate: parsed.estimate,
-    starred: '1' // Tasks from today view are starred by default
-  };
+    starred: '1'
+  });
 
-  createNode(null, nodeData); // Add at root level
   input.value = '';
-
   emitEvent('task', 'added');
   setFeedback('Task created');
-};
-
-treeView.editName = function(nodeId) {
-  var node = getNode(nodeId);
-  if (!node) return;
-
-  var newName = prompt('Edit name:', node.name);
-  if (newName !== null && newName.trim() !== '') {
-    node.name = newName.trim();
-    ttSave();
-    treeView.refresh();
-    emitEvent('task', 'updated');
-  }
-};
-
-treeView.showEditForm = function(nodeId) {
-  var node = getNode(nodeId);
-  if (!node) return;
-
-  // Build edit form
-  var html = '<h3>Edit ' + node.type + '</h3>';
-  html += '<div class="edit-field">Name <input type="text" id="node-name-input" value="' + escapeHtml(node.name) + '" /></div>';
-
-  if (node.type === 'task') {
-    html += '<div class="edit-field">Status <select id="node-status-input">';
-    var statuses = {new: 'New', inProcess: 'In Process', completed: 'Completed', onHold: 'On Hold'};
-    for (var s in statuses) {
-      var sel = node.status === s ? 'selected' : '';
-      html += '<option value="' + s + '" ' + sel + '>' + statuses[s] + '</option>';
-    }
-    html += '</select></div>';
-
-    html += '<div class="edit-field">Priority <select id="node-priority-input">';
-    for (var p = 1; p <= 5; p++) {
-      var sel = node.priority == p ? 'selected' : '';
-      html += '<option value="' + p + '" ' + sel + '>' + p + '</option>';
-    }
-    html += '</select></div>';
-
-    html += '<div class="edit-field">Estimate (min) <input type="text" id="node-estimate-input" value="' + Math.round((node.estimate || 0) / 60) + '" /></div>';
-
-    html += '<div class="edit-field">Billable <select id="node-billable-input">';
-    html += '<option value="1"' + (node.billable === '1' ? ' selected' : '') + '>Yes</option>';
-    html += '<option value="0"' + (node.billable === '0' ? ' selected' : '') + '>No</option>';
-    html += '</select></div>';
-
-    html += '<div class="edit-field">Notes <textarea id="node-notes-input">' + escapeHtml(node.notes || '') + '</textarea></div>';
-  }
-
-  html += '<div>';
-  html += '<a class="button" onclick="treeView.saveEditForm(\'' + nodeId + '\')">Save</a>';
-  html += '<a class="button" onclick="cancelEditForm()">Cancel</a>';
-  html += '<a class="button red" onclick="treeView.deleteNode(\'' + nodeId + '\')">Delete</a>';
-  html += '</div>';
-
-  gebi("edit-popup").innerHTML = html;
-  $("#modal-bg").show();
-  $("#edit-popup").show();
-};
-
-treeView.saveEditForm = function(nodeId) {
-  var node = getNode(nodeId);
-  if (!node) return;
-
-  node.name = gebi('node-name-input').value.trim() || node.name;
-
-  if (node.type === 'task') {
-    node.status = gebi('node-status-input').value;
-    node.priority = gebi('node-priority-input').value;
-    node.estimate = parseFloat(gebi('node-estimate-input').value || 0) * 60;
-    node.billable = gebi('node-billable-input').value;
-    node.notes = gebi('node-notes-input').value;
-  }
-
-  ttSave();
-  cancelEditForm();
-  treeView.refresh();
-  emitEvent('task', 'updated');
-  setFeedback('Item updated');
-};
-
-treeView.deleteNode = function(nodeId) {
-  var node = getNode(nodeId);
-  if (!node) return;
-
-  var hasChildren = node.childOrder && node.childOrder.length > 0;
-  var msg = 'Delete "' + node.name + '"?';
-  if (hasChildren) {
-    msg += '\n\nThis will also delete all children.';
-  }
-
-  if (confirm(msg)) {
-    deleteNode(nodeId, true);
-    cancelEditForm();
-    treeView.refresh();
-    emitEvent('task', 'deleted');
-    setFeedback('Item deleted');
-  }
-};
-
-treeView.startSession = function(nodeId) {
-  var node = getNode(nodeId);
-  if (!node || node.type !== 'task') {
-    setFeedback('Can only track time on tasks', 'error');
-    return;
-  }
-
-  current_node = node;
-  current_node_path = getNodePath(nodeId);
-
-  startNodeSession();
-};
-
-treeView.filterBySearch = function() {
-  var input = gebi('tree-search');
-  treeView.searchFilter = input ? input.value : '';
-  treeView.refresh();
-};
-
-treeView.toggleHideCompleted = function() {
-  var checkbox = gebi('tree-hide-completed');
-  treeView.hideCompleted = checkbox ? checkbox.checked : true;
-  treeView.refresh();
-};
-
-// Drag and drop
-treeView.initDragDrop = function() {
-  var container = gebi('node-tree');
-  if (!container) return;
-
-  container.addEventListener('dragstart', function(e) {
-    var li = e.target.closest('.tree-node');
-    if (li) {
-      treeView.draggedNodeId = li.getAttribute('data-node-id');
-      e.dataTransfer.effectAllowed = 'move';
-      li.classList.add('dragging');
-    }
-  });
-
-  container.addEventListener('dragend', function(e) {
-    var li = e.target.closest('.tree-node');
-    if (li) {
-      li.classList.remove('dragging');
-    }
-    treeView.draggedNodeId = null;
-
-    // Remove all drop indicators
-    var indicators = container.querySelectorAll('.drop-target, .drop-before, .drop-after');
-    for (var i = 0; i < indicators.length; i++) {
-      indicators[i].classList.remove('drop-target', 'drop-before', 'drop-after');
-    }
-  });
-
-  container.addEventListener('dragover', function(e) {
-    e.preventDefault();
-    var li = e.target.closest('.tree-node');
-    if (!li || li.getAttribute('data-node-id') === treeView.draggedNodeId) return;
-
-    // Remove existing indicators
-    var indicators = container.querySelectorAll('.drop-target, .drop-before, .drop-after');
-    for (var i = 0; i < indicators.length; i++) {
-      indicators[i].classList.remove('drop-target', 'drop-before', 'drop-after');
-    }
-
-    var rect = li.getBoundingClientRect();
-    var y = e.clientY - rect.top;
-    var height = rect.height;
-
-    if (y < height * 0.25) {
-      li.classList.add('drop-before');
-    } else if (y > height * 0.75) {
-      li.classList.add('drop-after');
-    } else {
-      li.classList.add('drop-target');
-    }
-  });
-
-  container.addEventListener('drop', function(e) {
-    e.preventDefault();
-    var li = e.target.closest('.tree-node');
-    if (!li || !treeView.draggedNodeId) return;
-
-    var targetId = li.getAttribute('data-node-id');
-    if (targetId === treeView.draggedNodeId) return;
-
-    var targetNode = getNode(targetId);
-    if (!targetNode) return;
-
-    var rect = li.getBoundingClientRect();
-    var y = e.clientY - rect.top;
-    var height = rect.height;
-
-    if (y < height * 0.25) {
-      // Insert before target
-      var parentId = targetNode.parentId;
-      var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
-      var targetIndex = siblings.indexOf(targetId);
-      moveNode(treeView.draggedNodeId, parentId, targetIndex);
-    } else if (y > height * 0.75) {
-      // Insert after target
-      var parentId = targetNode.parentId;
-      var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
-      var targetIndex = siblings.indexOf(targetId);
-      moveNode(treeView.draggedNodeId, parentId, targetIndex + 1);
-    } else {
-      // Drop as child of target (only if target is folder)
-      if (targetNode.type === 'folder') {
-        moveNode(treeView.draggedNodeId, targetId, -1);
-        // Expand the folder
-        targetNode.collapsed = false;
-        ttSave();
-      } else {
-        // Can't drop into a task, insert after instead
-        var parentId = targetNode.parentId;
-        var siblings = parentId === null ? ttData.rootOrder : getNode(parentId).childOrder;
-        var targetIndex = siblings.indexOf(targetId);
-        moveNode(treeView.draggedNodeId, parentId, targetIndex + 1);
-      }
-    }
-
-    treeView.refresh();
-    setFeedback('Item moved');
-  });
 };
 
 
@@ -5493,7 +5456,7 @@ function createNode(parentId, data) {
 
   var node = {
     id: newId(),
-    name: data.name || 'New Item',
+    name: data.name || '',
     type: data.type || 'task',
     parentId: parentId,
     childOrder: [],
