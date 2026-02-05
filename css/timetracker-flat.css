@@ -785,6 +785,19 @@ color: #000;
   margin-left: 10px;
 }
 
+/* Today view drag-and-drop */
+.today-task-item.today-drop-above {
+  box-shadow: inset 0 2px 0 0 #4a90a4;
+}
+
+.today-task-item.today-drop-below {
+  box-shadow: inset 0 -2px 0 0 #4a90a4;
+}
+
+.today-task-item.today-dragging {
+  opacity: 0.4;
+}
+
 /* ###################### AUTOCOMPLETE STYLES ###################### */
 
 /* Container for autocomplete - positioned relative to task input */

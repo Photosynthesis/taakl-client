@@ -4157,9 +4157,10 @@ todayView.filter = function(){
         task.metaParentage = '';
       }
 
-      // Calculate time
+      // Calculate time and estimate
       task.time = calculateNodeTime(task.id);
       task.metaPrettyTime = (task.time > 0) ? ' | ' + prettyTime(task.time) : '';
+      task.metaEstimate = (task.estimate > 0) ? ' | est ' + prettyTime(task.estimate) : '';
 
       // Check for morning tasks (#daily + #morning in name)
       if (taskHasTags(task, ['daily', 'morning'])) {
@@ -4215,6 +4216,7 @@ todayView.filter = function(){
           }
         }
         task.metaPrettyTime = (task.time > 0) ? " | " + prettyTime(task.time) : "";
+        task.metaEstimate = (task.estimate > 0) ? " | est " + prettyTime(task.estimate) : "";
 
         // Check for morning tasks (#daily + #morning in name)
         if(taskHasTags(task, ["daily", "morning"])){
@@ -4280,7 +4282,7 @@ todayView.createTaskElement = function(task){
     "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
       "<div class='today-task-main'>" +
         checkCompleted + " " + starIcon + " " + escapeHtml(task.truncateName) +
-        "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + "</span>" +
+        "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + (task.metaEstimate || '') + "</span>" +
       "</div>" +
       "<div class='today-task-actions'>" + playIcon + "</div>" +
     "</div>";
@@ -4320,14 +4322,19 @@ todayView.refresh = function(){
   starredContainer.innerHTML = "";
   eveningContainer.innerHTML = "";
 
+  // Apply saved starred order
+  todayView.applyStarredOrder();
+
   // Render morning tasks
   todayView.morningTasks.forEach(function(task){
     morningContainer.appendChild(todayView.createTaskElement(task));
   });
 
-  // Render starred tasks
+  // Render starred tasks with drag-and-drop
   todayView.starredTasks.forEach(function(task){
-    starredContainer.appendChild(todayView.createTaskElement(task));
+    var el = todayView.createTaskElement(task);
+    todayView.addDragHandlers(el, task.id, starredContainer);
+    starredContainer.appendChild(el);
   });
 
   // Render evening tasks
@@ -4348,6 +4355,122 @@ todayView.refresh = function(){
                    todayView.starredTasks.length +
                    todayView.eveningTasks.length;
   noTasksMsg.style.display = (totalTasks === 0) ? "block" : "none";
+};
+
+// --- Starred section ordering ---
+
+todayView.getStarredOrder = function() {
+  try {
+    return JSON.parse(localStorage.todayStarredOrder || '[]');
+  } catch(e) { return []; }
+};
+
+todayView.saveStarredOrder = function() {
+  var order = todayView.starredTasks.map(function(t) { return t.id; });
+  localStorage.todayStarredOrder = JSON.stringify(order);
+};
+
+todayView.applyStarredOrder = function() {
+  var savedOrder = todayView.getStarredOrder();
+  if (savedOrder.length === 0) return;
+
+  // Build a map of current starred tasks
+  var taskMap = {};
+  todayView.starredTasks.forEach(function(t) { taskMap[t.id] = t; });
+
+  var ordered = [];
+  // First add tasks in saved order (if they still exist in starred)
+  savedOrder.forEach(function(id) {
+    if (taskMap[id]) {
+      ordered.push(taskMap[id]);
+      delete taskMap[id];
+    }
+  });
+  // Then append any new starred tasks not in saved order
+  for (var id in taskMap) {
+    ordered.push(taskMap[id]);
+  }
+
+  todayView.starredTasks = ordered;
+};
+
+// --- Starred drag and drop ---
+todayView.dragState = null;
+
+todayView.addDragHandlers = function(el, taskId, container) {
+  el.setAttribute('draggable', 'true');
+  el.style.cursor = 'grab';
+
+  el.ondragstart = function(e) {
+    todayView.dragState = { taskId: taskId };
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+    setTimeout(function() { el.classList.add('today-dragging'); }, 0);
+  };
+
+  el.ondragend = function() {
+    el.classList.remove('today-dragging');
+    todayView.dragClearIndicators(container);
+    todayView.dragState = null;
+  };
+
+  el.ondragover = function(e) {
+    if (!todayView.dragState) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    todayView.dragClearIndicators(container);
+
+    var rect = el.getBoundingClientRect();
+    var y = e.clientY - rect.top;
+    if (y < rect.height / 2) {
+      el.classList.add('today-drop-above');
+    } else {
+      el.classList.add('today-drop-below');
+    }
+  };
+
+  el.ondragleave = function(e) {
+    if (!el.contains(e.relatedTarget)) {
+      el.classList.remove('today-drop-above', 'today-drop-below');
+    }
+  };
+
+  el.ondrop = function(e) {
+    e.preventDefault();
+    if (!todayView.dragState) return;
+
+    var dragId = todayView.dragState.taskId;
+    var dropId = taskId;
+    if (dragId === dropId) return;
+
+    var rect = el.getBoundingClientRect();
+    var above = (e.clientY - rect.top) < rect.height / 2;
+
+    // Reorder the starredTasks array
+    var dragIdx = -1, dropIdx = -1;
+    for (var i = 0; i < todayView.starredTasks.length; i++) {
+      if (todayView.starredTasks[i].id === dragId) dragIdx = i;
+      if (todayView.starredTasks[i].id === dropId) dropIdx = i;
+    }
+    if (dragIdx === -1 || dropIdx === -1) return;
+
+    var dragged = todayView.starredTasks.splice(dragIdx, 1)[0];
+    dropIdx = above
+      ? todayView.starredTasks.indexOf(todayView.starredTasks.filter(function(t){ return t.id === dropId; })[0])
+      : todayView.starredTasks.indexOf(todayView.starredTasks.filter(function(t){ return t.id === dropId; })[0]) + 1;
+    todayView.starredTasks.splice(dropIdx, 0, dragged);
+
+    todayView.saveStarredOrder();
+    todayView.dragState = null;
+    todayView.refresh();
+  };
+};
+
+todayView.dragClearIndicators = function(container) {
+  var items = container.querySelectorAll('.today-task-item');
+  for (var i = 0; i < items.length; i++) {
+    items[i].classList.remove('today-drop-above', 'today-drop-below');
+  }
 };
 
 todayView.update = function(){
