@@ -257,56 +257,66 @@
         </div>
       </div>
 
-      <!-- Analyze -->
-      <div id="analyze-view"  class="view-container" style="display: none">
-         <h3 id="analytics-view-title"></h3>
-         <div id="analyze-controls">
+      <!-- Analyze / Review -->
+      <div id="analyze-view" class="view-container" style="display: none">
 
-         <input type="text" id="filter-start-time"  placeholder="Start date" onChange="analyze.setStartTime()" />
-         <input type="text" id="filter-end-time" placeholder="End date" onChange="analyze.setEndTime()" />
-         </div>
+        <!-- Time Range Selector -->
+        <div id="analyze-range-bar">
+          <button class="range-btn" data-preset="today">Today</button>
+          <button class="range-btn" data-preset="yesterday">Yesterday</button>
+          <button class="range-btn active" data-preset="week">This Week</button>
+          <button class="range-btn" data-preset="lastweek">Last Week</button>
+          <button class="range-btn" data-preset="month">This Month</button>
+          <button class="range-btn" data-preset="lastmonth">Last Month</button>
+          <button class="range-btn" data-preset="custom">Custom</button>
+        </div>
 
+        <!-- Custom Date Pickers -->
+        <div id="analyze-custom-dates" style="display: none;">
+          <input type="text" id="analyze-start-date" placeholder="Start date" />
+          <span class="date-sep">to</span>
+          <input type="text" id="analyze-end-date" placeholder="End date" />
+        </div>
 
-         <table class="datatable" id="analyze-table">
-            <thead>
-              <tr>
-              <td>Client</td><td>Project</td><td>Task</td><td>Start time</td><td>Duration</td>
-                  <td>Decimal</td>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="js-data-template {{rowType}}-analyze-row" id="analyze-data-row-template" style="display:none" data-template="analyze-data-row">
-                  <td>{{client}}</td>
-                  <td>{{project}}</td>
-                  <td>{{task}}</td>
-                  <td>{{start_time}}{{session_edit}}</td>
-                  <td style="text-align:right">{{durationHMS}}</td>
-                  <td style="text-align:right">{{durationDecimal}}</td>
-              </tr>
-              <tr id="no-data-found-table" style="display: none;">
-              <td colspan="6" style="font-size: 1.5em; color: #aaa; text-align:center">No sessions to display</td></tr>
-            </tbody>
-            <tfoot class="js-data-template" id="analyze-totals-template" style="display:none">
-              <tr class="table-totals">
-                <td colspan="4">Billable time</td>
-                <td>{{totalBillableTimeHMS}}</td>
-                <td>{{totalBillableTimeDecimal}}</td>
-              </tr>
-              <tr class="table-totals">
-                <td colspan="4">Total time</td>
-                <td>{{totalTimeHMS}}</td>
-                <td>{{totalTimeDecimal}}</td>
-              </tr>
-            </tfoot>
-         </table>
-         <div id="analyze-stats-template" style="display:none; font-size: 0.9em; margin-top:10px">
-         Sessions: <b>{{sessions}}</b>  length (avg): <b>{{avgSessionLength}}</b>
-         </div>
-         <div id="analyze-chart" style="display:none;">
-           <canvas id="bar-chart" width="600" height="400"></canvas>
-           <canvas id="time-line" width="600" height="400"></canvas>
-         </div>
+        <!-- Drilldown Controls -->
+        <div id="analyze-drilldown">
+          <div id="analyze-breadcrumb"></div>
+          <div id="analyze-dropdowns"></div>
+        </div>
 
+        <!-- Summary -->
+        <div id="analyze-summary"></div>
+
+        <!-- Tabs -->
+        <div id="analyze-tabs">
+          <button class="analyze-tab active" data-tab="overview">Overview</button>
+          <button class="analyze-tab" data-tab="timeline">Timeline</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="analyze-overview">
+          <div id="analyze-chart-wrapper">
+            <canvas id="analyze-chart-canvas"></canvas>
+          </div>
+          <div id="analyze-table-container"></div>
+        </div>
+
+        <!-- Timeline Tab -->
+        <div id="analyze-timeline" style="display: none;">
+          <div id="analyze-timeline-controls">
+            <button class="zoom-btn" onclick="analyze.zoomOut()">-</button>
+            <span class="zoom-label">Zoom</span>
+            <button class="zoom-btn" onclick="analyze.zoomIn()">+</button>
+          </div>
+          <div id="analyze-timeline-scroll">
+            <div id="analyze-timeline-content"></div>
+          </div>
+        </div>
+
+        <!-- No Data State -->
+        <div id="analyze-no-data" style="display: none;">
+          No sessions found in the selected time range.
+        </div>
 
       </div>
 

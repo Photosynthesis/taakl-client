@@ -3632,379 +3632,708 @@ function endNodeSession(markComplete) {
 
 /* ################################ ANALYZE VIEW ################################ */
 
-analyze.show = function(){
+// State
+analyze.preset = 'week';
+analyze.dateRange = { start: '', end: '' };
+analyze.drillPath = [];
+analyze.activeTab = 'overview';
+analyze.timelineZoom = 1;
+analyze.sessions = [];
+analyze.aggregated = [];
+analyze.chartInstance = null;
+analyze.startPicker = null;
+analyze.endPicker = null;
 
-    makeFlatData();
+// Color palette for nodes (muted, deterministic)
+analyze.colorPalette = [
+  '#5b8c85', '#7a6c5d', '#8b7355', '#6b8e9f', '#9b8b7a',
+  '#7d9b84', '#8e7f6d', '#6a8b7a', '#8b9b6b', '#7b8a9a'
+];
 
-    var tableFields = {
-      client:"Client",
-      project:"Project",
-      task:"Task",
-      start_time:"Start Time",
-      duration:"Duration"
-    };
+/**
+ * Get date range from preset
+ */
+analyze.getDateRange = function(preset) {
+  var now = moment();
+  var start, end;
 
-    analyze.totals = {};
-    analyze.totals.totalTimeHMS = '';
-    analyze.totals.totalBillableTimeHMS = '';
-    analyze.tableData = flatData;
+  switch (preset) {
+    case 'today':
+      start = now.clone().startOf('day');
+      end = now.clone().endOf('day');
+      break;
+    case 'yesterday':
+      start = now.clone().subtract(1, 'day').startOf('day');
+      end = now.clone().subtract(1, 'day').endOf('day');
+      break;
+    case 'week':
+      start = now.clone().startOf('isoWeek');
+      end = now.clone();
+      break;
+    case 'lastweek':
+      start = now.clone().subtract(1, 'week').startOf('isoWeek');
+      end = now.clone().subtract(1, 'week').endOf('isoWeek');
+      break;
+    case 'month':
+      start = now.clone().startOf('month');
+      end = now.clone();
+      break;
+    case 'lastmonth':
+      start = now.clone().subtract(1, 'month').startOf('month');
+      end = now.clone().subtract(1, 'month').endOf('month');
+      break;
+    case 'custom':
+      return analyze.dateRange;
+    default:
+      start = now.clone().startOf('isoWeek');
+      end = now.clone();
+  }
 
-    analyze.filters = {
-            clientId : current_client.id || "all",
-            projectId : current_project.id || "all",
-            taskId : "all",
-            startTime : "all",
-            endTime : "all"
-    }
-
-
-
-
-    if(!analyze.startPicker){
-      analyze.startPicker = new Pikaday({
-          field: document.getElementById('filter-start-time'),
-          format: 'YYYY-MM-DD'//,
-       //   onSelect: function() {
-       //      analyze.filters.startTime = document.getElementById('filter-start-time').value;
-       //      analyze.filter();
-       //   }
-      });
-    }
-
-    if(!analyze.endPicker){
-      analyze.endPicker = new Pikaday({
-          field: document.getElementById('filter-end-time'),
-          format: 'YYYY-MM-DD'//,
-         // onSelect: function() {
-         //    analyze.filters.endTime = document.getElementById('filter-end-time').value+" 23:23:59";
-         //    analyze.filter();
-         // }
-      });
-    }
-
-    analyze.filter();
-}
-
-analyze.setStartTime = function(){
-   analyze.filters.startTime = document.getElementById('filter-start-time').value;
-   analyze.filter();
-}
-
-analyze.setEndTime = function(){
-   var end = document.getElementById('filter-end-time').value;
-   if(end != ""){
-     var value = end+" 23:59:59";
-   }else{
-     var value = "";
-   }
-   analyze.filters.endTime = value;
-   analyze.filter();
-}
-
-analyze.update = function(){
-   makeFlatData();
-   analyze.filter();
-}
-
-analyze.setClient = function(clientId){
-    analyze.filters.clientId = clientId || "all";
-    analyze.filter();
-}
-
-analyze.setProject = function(projectId){
-    analyze.filters.projectId = current_project.id || "all";
-    analyze.filter();
-}
-
-analyze.filter2 = function (){
-  analyze.totals = {
-    time : 0,
-    billableTime : 0,
-    sessionCount : 0
+  return {
+    start: start.format('YYYY-MM-DD'),
+    end: end.format('YYYY-MM-DD')
   };
+};
 
-  analyze.data = [];
-  var fs = [];
+/**
+ * Get all sessions within date range
+ */
+analyze.getSessionsInRange = function(start, end) {
+  var sessions = [];
+  var startBound = start + ' 00:00:00';
+  var endBound = end + ' 23:59:59';
+  var allNodes = ttData.nodes || {};
 
-  /* Convert filters. Eventually these should start in loop-compatible filter format */
-  if(analyze.filters.clientId != "all"){
-    fs.push({
-      condition : "equals",
-      field: "id",
-      type : "client",
-      value : analyze.filters.clientId
-    });
-  }
-  if(analyze.filters.projectId != "all"){
-    fs.push({
-      condition : "equals",
-      field: "id",
-      type : "project",
-      value : analyze.filters.projectId
-    });
-  }
-  if(analyze.filters.startTime != "all"){
-    fs.push({
-      condition : ">",
-      field: "start_time",
-      type : "session",
-      value : analyze.filters.startTime
-    });
-  }
-  if(analyze.filters.endTime != "all"){
-    fs.push({
-      condition : "<",
-      field: "end_time",
-      type : "session",
-      value : analyze.filters.endTime
-    });
+  for (var nodeId in allNodes) {
+    var node = allNodes[nodeId];
+    if (!node.sessions) continue;
+
+    var path = getNodePath(nodeId);
+
+    for (var sesId in node.sessions) {
+      var ses = node.sessions[sesId];
+      if (!ses.start_time || !ses.end_time) continue;
+      if (ses.start_time < startBound || ses.start_time > endBound) continue;
+
+      var durationSecs = timeDiffSecsFromString(ses.start_time, ses.end_time);
+
+      sessions.push({
+        id: sesId,
+        taskId: nodeId,
+        taskName: node.name,
+        start_time: ses.start_time,
+        end_time: ses.end_time,
+        durationSecs: durationSecs,
+        path: path
+      });
+    }
   }
 
-  loopData(fs,function(){
+  return sessions;
+};
 
-      analyze.data[this[this.level].id] = {
-        type : this.level,
-        name : this[this.level].name,
-        time : 0,
-        billableTime : 0
+/**
+ * Find immediate child of parentId in a path
+ */
+analyze.findChildAtLevel = function(path, parentId) {
+  if (parentId === null) {
+    return path[0] ? path[0].id : null;
+  }
+
+  for (var i = 0; i < path.length; i++) {
+    if (path[i].id === parentId && path[i + 1]) {
+      return path[i + 1].id;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Aggregate sessions by immediate children of parentId
+ */
+analyze.aggregateByLevel = function(sessions, parentId) {
+  var groups = {};
+
+  for (var i = 0; i < sessions.length; i++) {
+    var ses = sessions[i];
+    var childId = analyze.findChildAtLevel(ses.path, parentId);
+
+    if (!childId) continue;
+
+    if (!groups[childId]) {
+      var node = getNode(childId);
+      groups[childId] = {
+        nodeId: childId,
+        nodeName: node ? node.name : 'Unknown',
+        totalSecs: 0,
+        sessionCount: 0,
+        sessions: [],
+        isLeaf: nodeIsTask(childId)
       };
+    }
 
-      if(this.level == "task"){
-        var taskTotal = 0;
+    groups[childId].totalSecs += ses.durationSecs;
+    groups[childId].sessionCount++;
+    groups[childId].sessions.push(ses);
+  }
 
-        for (var sesId in this.task.sessions){
-          if(this.task.sessions[sesId].start_time && this.task.sessions[sesId].end_time){
-             taskTotal += timeDiffSecsFromString(this.task.sessions[sesId].start_time,this.task.sessions[sesId].end_time);
+  var result = [];
+  for (var id in groups) {
+    result.push(groups[id]);
+  }
+
+  result.sort(function(a, b) {
+    return b.totalSecs - a.totalSecs;
+  });
+
+  return result;
+};
+
+/**
+ * Get current parent ID from drill path
+ */
+analyze.getCurrentParentId = function() {
+  if (analyze.drillPath.length === 0) return null;
+  return analyze.drillPath[analyze.drillPath.length - 1];
+};
+
+/**
+ * Get deterministic color for node ID
+ */
+analyze.getNodeColor = function(nodeId) {
+  var hash = 0;
+  for (var i = 0; i < nodeId.length; i++) {
+    hash = ((hash << 5) - hash) + nodeId.charCodeAt(i);
+    hash = hash & hash;
+  }
+  var idx = Math.abs(hash) % analyze.colorPalette.length;
+  return analyze.colorPalette[idx];
+};
+
+/**
+ * Format seconds as "Xh Ym"
+ */
+analyze.formatDuration = function(secs) {
+  var hours = Math.floor(secs / 3600);
+  var mins = Math.floor((secs % 3600) / 60);
+  if (hours > 0) {
+    return hours + 'h ' + mins + 'm';
+  }
+  return mins + 'm';
+};
+
+/**
+ * Show the analyze view
+ */
+analyze.show = function() {
+  analyze.preset = 'week';
+  analyze.drillPath = [];
+  analyze.activeTab = 'overview';
+  analyze.timelineZoom = 1;
+
+  analyze.initPickers();
+  analyze.bindEvents();
+
+  addEventWatcher('task', 'updated', function() { analyze.refresh(); }, 'analyze');
+  addEventWatcher('task', 'added', function() { analyze.refresh(); }, 'analyze');
+  addEventWatcher('task', 'deleted', function() { analyze.refresh(); }, 'analyze');
+  addEventWatcher('server', 'synch', function() { analyze.refresh(); }, 'analyze');
+
+  analyze.refresh();
+};
+
+/**
+ * Hide the analyze view
+ */
+analyze.hide = function() {
+  removeEventWatchers('analyze');
+  if (analyze.chartInstance) {
+    analyze.chartInstance.destroy();
+    analyze.chartInstance = null;
+  }
+};
+
+/**
+ * Update the analyze view
+ */
+analyze.update = function() {
+  analyze.refresh();
+};
+
+/**
+ * Initialize Pikaday pickers
+ */
+analyze.initPickers = function() {
+  var startField = gebi('analyze-start-date');
+  var endField = gebi('analyze-end-date');
+
+  if (startField && !analyze.startPicker) {
+    analyze.startPicker = new Pikaday({
+      field: startField,
+      format: 'YYYY-MM-DD',
+      onSelect: function() {
+        analyze.setCustomDates();
+      }
+    });
+  }
+
+  if (endField && !analyze.endPicker) {
+    analyze.endPicker = new Pikaday({
+      field: endField,
+      format: 'YYYY-MM-DD',
+      onSelect: function() {
+        analyze.setCustomDates();
+      }
+    });
+  }
+};
+
+/**
+ * Bind click events
+ */
+analyze.bindEvents = function() {
+  var rangeBar = gebi('analyze-range-bar');
+  if (rangeBar) {
+    rangeBar.onclick = function(e) {
+      if (e.target.classList.contains('range-btn')) {
+        analyze.setPreset(e.target.dataset.preset);
+      }
+    };
+  }
+
+  var tabs = gebi('analyze-tabs');
+  if (tabs) {
+    tabs.onclick = function(e) {
+      if (e.target.classList.contains('analyze-tab')) {
+        analyze.setTab(e.target.dataset.tab);
+      }
+    };
+  }
+};
+
+/**
+ * Set time range preset
+ */
+analyze.setPreset = function(preset) {
+  analyze.preset = preset;
+
+  var buttons = document.querySelectorAll('#analyze-range-bar .range-btn');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].classList.toggle('active', buttons[i].dataset.preset === preset);
+  }
+
+  var customDates = gebi('analyze-custom-dates');
+  if (customDates) {
+    customDates.style.display = preset === 'custom' ? 'flex' : 'none';
+  }
+
+  if (preset !== 'custom') {
+    analyze.dateRange = analyze.getDateRange(preset);
+  }
+
+  analyze.drillPath = [];
+  analyze.refresh();
+};
+
+/**
+ * Set custom dates from picker inputs
+ */
+analyze.setCustomDates = function() {
+  var startField = gebi('analyze-start-date');
+  var endField = gebi('analyze-end-date');
+
+  if (startField && endField && startField.value && endField.value) {
+    analyze.dateRange = {
+      start: startField.value,
+      end: endField.value
+    };
+    analyze.refresh();
+  }
+};
+
+/**
+ * Drill into a node
+ */
+analyze.drillInto = function(nodeId) {
+  if (!nodeId) return;
+  analyze.drillPath.push(nodeId);
+  analyze.refresh();
+};
+
+/**
+ * Drill to a specific level
+ */
+analyze.drillTo = function(level) {
+  analyze.drillPath = analyze.drillPath.slice(0, level);
+  analyze.refresh();
+};
+
+/**
+ * Handle dropdown change
+ */
+analyze.onDropdownChange = function(level, nodeId) {
+  analyze.drillPath = analyze.drillPath.slice(0, level);
+  if (nodeId !== 'all') {
+    analyze.drillPath.push(nodeId);
+  }
+  analyze.refresh();
+};
+
+/**
+ * Set active tab
+ */
+analyze.setTab = function(tab) {
+  analyze.activeTab = tab;
+
+  var tabs = document.querySelectorAll('#analyze-tabs .analyze-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle('active', tabs[i].dataset.tab === tab);
+  }
+
+  var overview = gebi('analyze-overview');
+  var timeline = gebi('analyze-timeline');
+
+  if (overview) overview.style.display = tab === 'overview' ? 'block' : 'none';
+  if (timeline) timeline.style.display = tab === 'timeline' ? 'block' : 'none';
+
+  analyze.renderActiveTab();
+};
+
+/**
+ * Render breadcrumb navigation
+ */
+analyze.renderBreadcrumb = function() {
+  var container = gebi('analyze-breadcrumb');
+  if (!container) return;
+
+  var html = '<span class="breadcrumb-item" onclick="analyze.drillTo(0)">All</span>';
+
+  for (var i = 0; i < analyze.drillPath.length; i++) {
+    var node = getNode(analyze.drillPath[i]);
+    var name = node ? node.name : 'Unknown';
+    html += ' <span class="breadcrumb-sep">&gt;</span> ';
+    html += '<span class="breadcrumb-item" onclick="analyze.drillTo(' + (i + 1) + ')">' + name + '</span>';
+  }
+
+  container.innerHTML = html;
+};
+
+/**
+ * Render cascading dropdown selectors
+ */
+analyze.renderDropdowns = function() {
+  var container = gebi('analyze-dropdowns');
+  if (!container) return;
+
+  var html = '';
+  var parentId = null;
+
+  for (var level = 0; level <= analyze.drillPath.length; level++) {
+    var children = getNodeChildren(parentId);
+    var nonLeafChildren = children.filter(function(c) { return !nodeIsTask(c.id); });
+
+    if (nonLeafChildren.length === 0 && level > 0) break;
+
+    var selectedId = analyze.drillPath[level] || 'all';
+
+    html += '<select class="analyze-dropdown" onchange="analyze.onDropdownChange(' + level + ', this.value)">';
+    html += '<option value="all"' + (selectedId === 'all' ? ' selected' : '') + '>All</option>';
+
+    for (var i = 0; i < children.length; i++) {
+      var child = children[i];
+      var selected = child.id === selectedId ? ' selected' : '';
+      html += '<option value="' + child.id + '"' + selected + '>' + child.name + '</option>';
+    }
+
+    html += '</select>';
+
+    if (analyze.drillPath[level]) {
+      parentId = analyze.drillPath[level];
+    } else {
+      break;
+    }
+  }
+
+  container.innerHTML = html;
+};
+
+/**
+ * Render summary line
+ */
+analyze.renderSummary = function() {
+  var container = gebi('analyze-summary');
+  if (!container) return;
+
+  var totalSecs = 0;
+  for (var i = 0; i < analyze.aggregated.length; i++) {
+    totalSecs += analyze.aggregated[i].totalSecs;
+  }
+
+  var itemCount = analyze.aggregated.length;
+  var timeStr = analyze.formatDuration(totalSecs);
+
+  container.innerHTML = timeStr + ' tracked across ' + itemCount + ' item' + (itemCount !== 1 ? 's' : '');
+};
+
+/**
+ * Master refresh function
+ */
+analyze.refresh = function() {
+  if (analyze.preset !== 'custom') {
+    analyze.dateRange = analyze.getDateRange(analyze.preset);
+  }
+
+  analyze.sessions = analyze.getSessionsInRange(analyze.dateRange.start, analyze.dateRange.end);
+  analyze.aggregated = analyze.aggregateByLevel(analyze.sessions, analyze.getCurrentParentId());
+
+  analyze.renderBreadcrumb();
+  analyze.renderDropdowns();
+  analyze.renderSummary();
+
+  var noData = gebi('analyze-no-data');
+  var overview = gebi('analyze-overview');
+  var timeline = gebi('analyze-timeline');
+  var tabs = gebi('analyze-tabs');
+
+  if (analyze.aggregated.length === 0) {
+    if (noData) noData.style.display = 'block';
+    if (overview) overview.style.display = 'none';
+    if (timeline) timeline.style.display = 'none';
+    if (tabs) tabs.style.display = 'none';
+  } else {
+    if (noData) noData.style.display = 'none';
+    if (tabs) tabs.style.display = 'flex';
+    analyze.renderActiveTab();
+  }
+};
+
+/**
+ * Render the currently active tab
+ */
+analyze.renderActiveTab = function() {
+  if (analyze.activeTab === 'overview') {
+    analyze.renderOverviewChart();
+    analyze.renderOverviewTable();
+    var overview = gebi('analyze-overview');
+    if (overview) overview.style.display = 'block';
+    var timeline = gebi('analyze-timeline');
+    if (timeline) timeline.style.display = 'none';
+  } else if (analyze.activeTab === 'timeline') {
+    analyze.renderTimeline();
+    var overview = gebi('analyze-overview');
+    if (overview) overview.style.display = 'none';
+    var timeline = gebi('analyze-timeline');
+    if (timeline) timeline.style.display = 'block';
+  }
+};
+
+/**
+ * Render horizontal bar chart
+ */
+analyze.renderOverviewChart = function() {
+  var canvas = gebi('analyze-chart-canvas');
+  if (!canvas) return;
+
+  if (analyze.chartInstance) {
+    analyze.chartInstance.destroy();
+    analyze.chartInstance = null;
+  }
+
+  var labels = [];
+  var data = [];
+  var colors = [];
+  var nodeIds = [];
+
+  for (var i = 0; i < analyze.aggregated.length; i++) {
+    var item = analyze.aggregated[i];
+    labels.push(item.nodeName);
+    data.push(Math.round(item.totalSecs / 60));
+    colors.push(analyze.getNodeColor(item.nodeId));
+    nodeIds.push(item.nodeId);
+  }
+
+  var ctx = canvas.getContext('2d');
+  analyze.chartInstance = new Chart(ctx, {
+    type: 'horizontalBar',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      legend: { display: false },
+      scales: {
+        xAxes: [{
+          ticks: {
+            beginAtZero: true,
+            callback: function(value) {
+              var hours = Math.floor(value / 60);
+              var mins = value % 60;
+              if (hours > 0) return hours + 'h ' + mins + 'm';
+              return mins + 'm';
+            }
+          }
+        }]
+      },
+      onClick: function(evt) {
+        var activePoints = analyze.chartInstance.getElementsAtEvent(evt);
+        if (activePoints.length > 0) {
+          var idx = activePoints[0]._index;
+          var nodeId = nodeIds[idx];
+          var item = analyze.aggregated[idx];
+          if (!item.isLeaf) {
+            analyze.drillInto(nodeId);
           }
         }
-
-        if(this.task.billable == "1"){
-            analyze.data[this.client.id].billableTime += taskTotal;
-            analyze.data[this.project.id].billableTime += taskTotal;
-            analyze.data[this.task.id].billableTime += taskTotal;
+      },
+      tooltips: {
+        callbacks: {
+          label: function(tooltipItem) {
+            return analyze.formatDuration(tooltipItem.xLabel * 60);
+          }
         }
-
-        analyze.data[this.client.id].time += taskTotal;
-        analyze.data[this.project.id].time  += taskTotal;
-        analyze.data[this.task.id].time  += taskTotal;
-
-      }
-   });
-
-}
-
-analyze.filter = function (){
-
-   fs = analyze.filters;
-
-   tempTableData = [];
-
-   dbg("Filters in analyze.filter()",fs);
-
-   totalTime = 0;
-   totalBillableTime = 0;
-
-   var projectTotal = 0;
-   var lastRow = {};
-   var clientTotal = 0;
-   var lastClientId = 0;
-
-   var stats = {
-      sessions: 0,
-      avgSessionLength: 0,
-      avgSessionsPerTask: 0
-   };
-
-   for (row in flatData){
-
-     if (fs.clientId != "all" && flatData[row].client_id != fs.clientId){ continue; }
-     if (fs.projectId != "all" && flatData[row].project_id != fs.projectId){ continue; }
-     //if (fs.taskId != "all"  && flatData[row].task_id != fs.taskId){ continue; }
-     if (fs.startTime != "all" && flatData[row].start_time < fs.startTime){ continue; }
-     if (fs.endTime && flatData[row].end_time > fs.endTime){ continue; }
-
-     stats.sessions += 1;
-
-     if(!current_client){
-       if(lastRow.client_id && flatData[row].client_id != lastRow.client_id){
-
-         clientTotalRow = {
-            client: lastRow.client,
-            project:"",
-            task:"",
-            start_time:"",
-            session_edit:"",
-            durationHMS:timeFromSeconds(clientTotal),
-            durationDecimal: hoursFromSeconds(clientTotal,2),
-            rowType:"client"
-         };
-
-         tempTableData.push(clientTotalRow);
-         clientTotal = 0;
-       }
-     }
-
-
-     if(!current_project && current_client){
-       if(lastRow.project_id && flatData[row].project_id != lastRow.project_id){
-         dbg("New project detected");
-
-         projectTotalRow = {
-            client: lastRow.client,
-            project: lastRow.project,
-            task:"",
-            start_time:"",
-            session_edit:"",
-            durationHMS:timeFromSeconds(projectTotal),
-            durationDecimal: hoursFromSeconds(projectTotal,2),
-            rowType:"project"
-         };
-
-         tempTableData.push(projectTotalRow);
-         projectTotal = 0;
-       }
-     }
-
-     if(current_client && current_project){
-        flatData[row].session_edit = '<a class="button" onClick="showGeneralEditForm(\'session\',\''+flatData[row].session_id+'\')">Edit</a>';
-
-        flatData[row].durationDecimal = hoursFromSeconds(flatData[row].duration,2),
-        tempTableData.push(flatData[row]);
-     }
-
-     clientTotal += flatData[row].duration;
-     projectTotal += flatData[row].duration;
-     totalTime += flatData[row].duration;
-
-     dbg("Billableness",flatData[row].billable);
-
-     if(flatData[row].billable == "1" || flatData[row].billable == 1){
-        totalBillableTime += flatData[row].duration;
-     }else{
-        dbg("Not Billable",flatData[row]);
-     }
-
-     lastRow = flatData[row];
-
-   }
-
-   if(!current_project && current_client){
-         projectTotalRow = {
-            client: lastRow.client,
-            project: lastRow.project,
-            task:"",
-            start_time:"",
-            session_edit:"",
-            durationHMS:timeFromSeconds(projectTotal),
-            durationDecimal: hoursFromSeconds(projectTotal,2),
-            rowType:"project"
-         };
-         tempTableData.push(projectTotalRow);
-     }
-
-   if(!current_client){
-       clientTotalRow = {
-          client: lastRow.client,
-          project:"",
-          task:"",
-          start_time:"",
-          session_edit:"",
-          durationHMS:timeFromSeconds(clientTotal),
-          durationDecimal: hoursFromSeconds(clientTotal,2),
-          rowType:"client"
-       };
-
-       tempTableData.push(clientTotalRow);
-       clientTotal = 0;
-    }
-
-   analyze.totals.totalTimeHMS = timeFromSeconds(totalTime);
-   analyze.totals.totalTimeDecimal = hoursFromSeconds(totalTime,2);
-   analyze.totals.totalBillableTimeHMS = timeFromSeconds(totalBillableTime);
-   analyze.totals.totalBillableTimeDecimal = hoursFromSeconds(totalBillableTime,2);
-   analyze.tableData = tempTableData;
-
-   stats.avgSessionLength = timeFromSeconds(totalTime/stats.sessions);
-
-   clearTemplate("analyze-data-row-template");
-
-   for(var i = 0; i < analyze.tableData.length; i++){
-      template(analyze.tableData[i],"analyze-data-row-template");
-   }
-
-   clearTemplate("analyze-totals-template");
-   template(analyze.totals,"analyze-totals-template");
-
-   clearTemplate("analyze-stats-template");
-   template(stats,"analyze-stats-template");
-
-   if(!tempTableData[0]){
-     document.getElementById("no-data-found-table").style.display = "table-row";
-   }else{
-     document.getElementById("no-data-found-table").style.display = "none";
-   }
-
-   // analyze.chart();
-
-}
-
-analyze.chart = function(){
-
-    type = "project";
-
-    dbg("analyze chart called");
-    var labels = [];
-    var data = [];
-
-    for (id in analyze.data){
-      if(analyze.data[id].type == type){
-         labels.push(analyze.data[id].name);
-         data.push(analyze.data[id].time);
       }
     }
+  });
+};
 
-    var ctx = document.getElementById("bar-chart");
-    var barChart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Time',
-                data: data,
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.2)',
-                    'rgba(54, 162, 235, 0.2)',
-                    'rgba(255, 206, 86, 0.2)',
-                    'rgba(75, 192, 192, 0.2)',
-                    'rgba(153, 102, 255, 0.2)',
-                    'rgba(255, 159, 64, 0.2)'
-                ],
-                borderColor: [
-                    'rgba(255,99,132,1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)',
-                    'rgba(75, 192, 192, 1)',
-                    'rgba(153, 102, 255, 1)',
-                    'rgba(255, 159, 64, 1)'
-                ],
-                borderWidth: 1
-            }]
+/**
+ * Render overview table
+ */
+analyze.renderOverviewTable = function() {
+  var container = gebi('analyze-table-container');
+  if (!container) return;
 
-        },
-        options: {
-            scales: {
-                yAxes: [{
-                    ticks: {
-                        beginAtZero:true
-                    }
-                }]
-            }
-        }
-    });
+  var totalSecs = 0;
+  for (var i = 0; i < analyze.aggregated.length; i++) {
+    totalSecs += analyze.aggregated[i].totalSecs;
+  }
 
-    gebi("analyze-chart").style.display = "block";
+  var html = '<table class="analyze-table"><thead><tr><th>Name</th><th>Time</th><th>%</th></tr></thead><tbody>';
 
-}
+  for (var i = 0; i < analyze.aggregated.length; i++) {
+    var item = analyze.aggregated[i];
+    var pct = totalSecs > 0 ? Math.round((item.totalSecs / totalSecs) * 100) : 0;
+    var clickable = !item.isLeaf ? ' class="clickable" onclick="analyze.drillInto(\'' + item.nodeId + '\')"' : '';
+
+    html += '<tr' + clickable + '>';
+    html += '<td>' + item.nodeName + '</td>';
+    html += '<td>' + analyze.formatDuration(item.totalSecs) + '</td>';
+    html += '<td>' + pct + '%</td>';
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+};
+
+/**
+ * Render timeline view
+ */
+analyze.renderTimeline = function() {
+  var container = gebi('analyze-timeline-content');
+  if (!container) return;
+
+  if (analyze.sessions.length === 0) {
+    container.innerHTML = '<div class="timeline-empty">No sessions to display</div>';
+    return;
+  }
+
+  var startMoment = moment(analyze.dateRange.start + ' 00:00:00');
+  var endMoment = moment(analyze.dateRange.end + ' 23:59:59');
+  var totalHours = endMoment.diff(startMoment, 'hours') + 1;
+
+  var pixelsPerHour = 30 * analyze.timelineZoom;
+  var contentWidth = pixelsPerHour * totalHours;
+  var labelWidth = 120;
+
+  var html = '<div class="timeline-header" style="margin-left: ' + labelWidth + 'px; width: ' + contentWidth + 'px;">';
+  html += analyze.renderTimeAxis(startMoment, totalHours, pixelsPerHour);
+  html += '</div>';
+
+  html += '<div class="timeline-body">';
+
+  for (var i = 0; i < analyze.aggregated.length; i++) {
+    var item = analyze.aggregated[i];
+    var color = analyze.getNodeColor(item.nodeId);
+    var clickable = !item.isLeaf ? ' onclick="analyze.drillInto(\'' + item.nodeId + '\')"' : '';
+    var clickableClass = !item.isLeaf ? ' clickable' : '';
+
+    html += '<div class="timeline-row">';
+    html += '<div class="timeline-label' + clickableClass + '"' + clickable + '>' + item.nodeName + '</div>';
+    html += '<div class="timeline-track" style="width: ' + contentWidth + 'px;">';
+
+    for (var j = 0; j < item.sessions.length; j++) {
+      var ses = item.sessions[j];
+      var sesStart = moment(ses.start_time);
+      var sesEnd = moment(ses.end_time);
+
+      var offsetHours = sesStart.diff(startMoment, 'hours', true);
+      var durationHours = sesEnd.diff(sesStart, 'hours', true);
+
+      var left = offsetHours * pixelsPerHour;
+      var width = Math.max(durationHours * pixelsPerHour, 3);
+
+      html += '<div class="timeline-block" style="left: ' + left + 'px; width: ' + width + 'px; background-color: ' + color + ';" ';
+      html += 'title="' + ses.taskName + ': ' + analyze.formatDuration(ses.durationSecs) + '"></div>';
+    }
+
+    html += '</div></div>';
+  }
+
+  html += '</div>';
+
+  container.innerHTML = html;
+};
+
+/**
+ * Render time axis for timeline
+ */
+analyze.renderTimeAxis = function(startMoment, totalHours, pixelsPerHour) {
+  var html = '';
+  var interval = 6;
+  if (totalHours <= 24) interval = 1;
+  else if (totalHours <= 72) interval = 3;
+  else if (totalHours <= 168) interval = 6;
+  else interval = 24;
+
+  for (var h = 0; h < totalHours; h += interval) {
+    var m = startMoment.clone().add(h, 'hours');
+    var label = interval >= 24 ? m.format('MMM D') : m.format('HH:mm');
+    var left = h * pixelsPerHour;
+
+    html += '<div class="timeline-tick" style="left: ' + left + 'px;">' + label + '</div>';
+  }
+
+  return html;
+};
+
+/**
+ * Zoom timeline in
+ */
+analyze.zoomIn = function() {
+  if (analyze.timelineZoom < 10) {
+    analyze.timelineZoom *= 1.5;
+    analyze.renderTimeline();
+  }
+};
+
+/**
+ * Zoom timeline out
+ */
+analyze.zoomOut = function() {
+  if (analyze.timelineZoom > 1) {
+    analyze.timelineZoom /= 1.5;
+    if (analyze.timelineZoom < 1) analyze.timelineZoom = 1;
+    analyze.renderTimeline();
+  }
+};
 
 
 /* ###################### SETTINGS VIEW ############################## */
