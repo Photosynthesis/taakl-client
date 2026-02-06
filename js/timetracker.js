@@ -3527,6 +3527,9 @@ function startNodeSession() {
   if (!current_node.sessions) current_node.sessions = {};
   current_node.sessions[current_session.id] = current_session;
 
+  // Queue for sync
+  synchQueue.add("insert", "node_session", current_session.id, current_node.id);
+
   // Save current node ID
   localStorage.ttCurrentNodeId = current_node.id;
   localStorage.ttSessionId = current_session.id;
@@ -3607,6 +3610,10 @@ function endNodeSession(markComplete) {
       current_node.status = 'inProcess';
     }
   }
+
+  // Queue session and node updates for sync
+  synchQueue.add("update", "node_session", current_session.id, current_node.id);
+  synchQueue.add("update", "node", current_node.id, current_node.parentId);
 
   var pastSessionId = current_session.id;
   current_session = '';
@@ -5111,6 +5118,16 @@ synchQueue.add = function(action, type, id, parentId) {
 
 // Helper to get item data for sync
 function getItemData(type, id) {
+  // Handle node type separately
+  if (type === 'node') {
+    return getNodeData(id);
+  }
+
+  // Handle node_session type
+  if (type === 'node_session') {
+    return getNodeSessionData(id);
+  }
+
   var item = getItemById(type, id);
   if (!item) return null;
 
@@ -5131,6 +5148,56 @@ function getItemData(type, id) {
   }
 
   return data;
+}
+
+// Helper to get node data for sync (v2 structure)
+function getNodeData(id) {
+  var node = getNode(id);
+  if (!node) return null;
+
+  var data = {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    parentId: node.parentId,
+    childOrder: node.childOrder || [],
+    collapsed: node.collapsed || false
+  };
+
+  // Include task-specific fields
+  if (node.type === 'task') {
+    data.status = node.status;
+    data.priority = node.priority;
+    data.billable = node.billable;
+    data.estimate = node.estimate;
+    data.due = node.due;
+    data.starred = node.starred;
+    data.notes = node.notes;
+    data.sessions = node.sessions || {};
+  }
+
+  return data;
+}
+
+// Helper to get node session data for sync (v2 structure)
+function getNodeSessionData(sessionId) {
+  // Search all nodes for the session
+  if (!ttData.nodes) return null;
+
+  for (var nodeId in ttData.nodes) {
+    var node = ttData.nodes[nodeId];
+    if (node.sessions && node.sessions[sessionId]) {
+      var session = node.sessions[sessionId];
+      return {
+        id: session.id,
+        start_time: session.start_time,
+        end_time: session.end_time || null,
+        notes: session.notes || ''
+      };
+    }
+  }
+
+  return null;
 }
 
 function synchIconStatus(status) {
@@ -5175,9 +5242,12 @@ function synchToServer() {
   // Prepare data for upload
   var syncData = {
     ttData: {
+      dataVersion: ttData.dataVersion || 2,
       userKey: ttData.userKey,
       clients: ttData.clients,
-      settings: ttData.settings
+      settings: ttData.settings,
+      nodes: ttData.nodes || {},
+      rootOrder: ttData.rootOrder || []
     }
   };
 
@@ -5248,6 +5318,17 @@ function synchFromServer() {
         // Ensure settings exist
         if (!serverData.settings) {
           serverData.settings = defaultSettings;
+        }
+
+        // Ensure v2 data structure fields exist
+        if (!serverData.dataVersion) {
+          serverData.dataVersion = 2;
+        }
+        if (!serverData.nodes) {
+          serverData.nodes = {};
+        }
+        if (!serverData.rootOrder) {
+          serverData.rootOrder = [];
         }
 
         ttData = serverData;
@@ -5362,7 +5443,16 @@ function applyServerChanges(changes) {
 
 // Delete item locally (used by sync)
 function deleteItemLocally(type, uuid) {
-  // Find and delete the item
+  // Handle v2 node types
+  if (type === 'node') {
+    deleteNodeLocally(uuid);
+    return;
+  } else if (type === 'node_session') {
+    deleteNodeSessionLocally(uuid);
+    return;
+  }
+
+  // Legacy v1 types
   if (type === 'client') {
     delete ttData.clients[uuid];
   } else if (type === 'project') {
@@ -5392,6 +5482,40 @@ function deleteItemLocally(type, uuid) {
           }
         }
       }
+    }
+  }
+}
+
+// Delete node locally (used by sync for v2 structure)
+function deleteNodeLocally(uuid) {
+  if (!ttData.nodes || !ttData.nodes[uuid]) return;
+
+  var node = ttData.nodes[uuid];
+
+  // Remove from parent's childOrder or rootOrder
+  if (node.parentId === null) {
+    var idx = ttData.rootOrder.indexOf(uuid);
+    if (idx > -1) ttData.rootOrder.splice(idx, 1);
+  } else {
+    var parent = ttData.nodes[node.parentId];
+    if (parent && parent.childOrder) {
+      var idx = parent.childOrder.indexOf(uuid);
+      if (idx > -1) parent.childOrder.splice(idx, 1);
+    }
+  }
+
+  delete ttData.nodes[uuid];
+}
+
+// Delete node session locally (used by sync for v2 structure)
+function deleteNodeSessionLocally(sessionId) {
+  if (!ttData.nodes) return;
+
+  for (var nodeId in ttData.nodes) {
+    var node = ttData.nodes[nodeId];
+    if (node.sessions && node.sessions[sessionId]) {
+      delete node.sessions[sessionId];
+      return;
     }
   }
 }
@@ -5442,7 +5566,92 @@ function upsertItemLocally(type, uuid, data, parentUuid) {
         }
       }
     }
+  } else if (type === 'node') {
+    upsertNodeLocally(uuid, data, parentUuid);
+  } else if (type === 'node_session' && parentUuid) {
+    upsertNodeSessionLocally(uuid, data, parentUuid);
   }
+}
+
+// Upsert node locally (used by sync for v2 structure)
+function upsertNodeLocally(uuid, data, parentUuid) {
+  if (!ttData.nodes) ttData.nodes = {};
+  if (!ttData.rootOrder) ttData.rootOrder = [];
+
+  var isNew = !ttData.nodes[uuid];
+
+  if (isNew) {
+    ttData.nodes[uuid] = {
+      id: uuid,
+      childOrder: [],
+      sessions: {}
+    };
+  }
+
+  // Update node properties
+  var node = ttData.nodes[uuid];
+  if (data.name !== undefined) node.name = data.name;
+  if (data.type !== undefined) node.type = data.type;
+  if (data.collapsed !== undefined) node.collapsed = data.collapsed;
+  if (data.childOrder !== undefined) node.childOrder = data.childOrder;
+
+  // Task-specific fields
+  if (data.status !== undefined) node.status = data.status;
+  if (data.priority !== undefined) node.priority = data.priority;
+  if (data.billable !== undefined) node.billable = data.billable;
+  if (data.estimate !== undefined) node.estimate = data.estimate;
+  if (data.due !== undefined) node.due = data.due;
+  if (data.starred !== undefined) node.starred = data.starred;
+  if (data.notes !== undefined) node.notes = data.notes;
+  if (data.sessions !== undefined) node.sessions = data.sessions;
+
+  // Handle parent change or new node placement
+  var oldParentId = node.parentId;
+  var newParentId = parentUuid === undefined ? oldParentId : parentUuid;
+
+  if (isNew || oldParentId !== newParentId) {
+    // Remove from old parent
+    if (!isNew) {
+      if (oldParentId === null) {
+        var idx = ttData.rootOrder.indexOf(uuid);
+        if (idx > -1) ttData.rootOrder.splice(idx, 1);
+      } else if (ttData.nodes[oldParentId]) {
+        var oldParent = ttData.nodes[oldParentId];
+        if (oldParent.childOrder) {
+          var idx = oldParent.childOrder.indexOf(uuid);
+          if (idx > -1) oldParent.childOrder.splice(idx, 1);
+        }
+      }
+    }
+
+    // Add to new parent
+    node.parentId = newParentId;
+    if (newParentId === null) {
+      if (ttData.rootOrder.indexOf(uuid) === -1) {
+        ttData.rootOrder.push(uuid);
+      }
+    } else if (ttData.nodes[newParentId]) {
+      var newParent = ttData.nodes[newParentId];
+      if (!newParent.childOrder) newParent.childOrder = [];
+      if (newParent.childOrder.indexOf(uuid) === -1) {
+        newParent.childOrder.push(uuid);
+      }
+    }
+  }
+}
+
+// Upsert node session locally (used by sync for v2 structure)
+function upsertNodeSessionLocally(sessionId, data, nodeId) {
+  if (!ttData.nodes || !ttData.nodes[nodeId]) return;
+
+  var node = ttData.nodes[nodeId];
+  if (!node.sessions) node.sessions = {};
+
+  if (!node.sessions[sessionId]) {
+    node.sessions[sessionId] = { id: sessionId };
+  }
+
+  Object.assign(node.sessions[sessionId], data);
 }
 
 // Legacy callback functions
@@ -6058,6 +6267,9 @@ function createNode(parentId, data) {
     }
   }
 
+  // Queue for sync
+  synchQueue.add("insert", "node", node.id, parentId);
+
   ttSave();
   return node;
 }
@@ -6078,6 +6290,9 @@ function updateNode(id, data) {
     }
   }
 
+  // Queue for sync
+  synchQueue.add("update", "node", id, node.parentId);
+
   ttSave();
   return node;
 }
@@ -6092,6 +6307,9 @@ function deleteNode(id, cascade) {
   var node = getNode(id);
   if (!node) return false;
 
+  // Queue for sync before deletion (need to capture parentId)
+  synchQueue.add("delete", "node", id, node.parentId);
+
   if (cascade) {
     // Delete all children recursively
     var children = getNodeChildren(id);
@@ -6103,6 +6321,8 @@ function deleteNode(id, cascade) {
     var children = getNodeChildren(id);
     for (var i = 0; i < children.length; i++) {
       children[i].parentId = node.parentId;
+      // Queue move for sync
+      synchQueue.add("update", "node", children[i].id, node.parentId);
       if (node.parentId === null) {
         // Add to root
         var idx = ttData.rootOrder.indexOf(id);
@@ -6188,6 +6408,9 @@ function moveNode(id, newParentId, index) {
       }
     }
   }
+
+  // Queue for sync (captures new parentId)
+  synchQueue.add("update", "node", id, newParentId);
 
   ttSave();
   return true;
