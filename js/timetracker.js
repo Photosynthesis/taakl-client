@@ -754,6 +754,8 @@ function ttInit(){
 
     feedbackElement = document.getElementById('feedback');
 
+    var isFirstVisit = !localStorage.ttData;
+
     if(!localStorage.ttData){
       // Fresh start - initialize with v2 node structure
       initFreshData();
@@ -895,6 +897,14 @@ function ttInit(){
    // Initialize task autocomplete (for legacy view)
    if (!isNodeStructure()) {
      taskAutocomplete.init();
+   }
+
+   // Prompt login on first visit (no existing data and not logged in)
+   if (isFirstVisit && !isLoggedIn()) {
+     // Brief delay to let the UI render first
+     setTimeout(function() {
+       showAuthModal('login');
+     }, 500);
    }
 
 }
@@ -4394,6 +4404,19 @@ settingsView.show = function(){
     phDiv.parentNode.replaceChild(inputs[field], phDiv);
   }
 
+  // Update account status section
+  var accountStatus = gebi('settings-account-status');
+  if (accountStatus) {
+    if (isLoggedIn() && ttData.userName) {
+      accountStatus.innerHTML = '<p>Logged in as <strong>' + ttData.userName + '</strong></p>' +
+        '<a href="#void" onClick="doLogout()" class="button">Logout</a>';
+    } else {
+      accountStatus.innerHTML = '<p>Not logged in</p>' +
+        '<a href="#void" onClick="showAuthModal(\'login\')" class="button">Login</a> ' +
+        '<a href="#void" onClick="showAuthModal(\'register\')" class="button">Create Account</a>';
+    }
+  }
+
   gebi("client-controls").style.display = "none";
   gebi("project-controls").style.display = "none";
 
@@ -5230,8 +5253,7 @@ function synchIconStatus(status) {
 // Main sync function - uploads full data
 function synchToServer() {
   if (!isLoggedIn()) {
-    setFeedback('Please login to sync', 'error');
-    synchIconStatus("error");
+    showAuthModal('login');
     return;
   }
 

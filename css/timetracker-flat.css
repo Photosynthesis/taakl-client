@@ -1518,3 +1518,21 @@ color: #000;
     height: 200px;
   }
 }
+
+/* ###################### SETTINGS ACCOUNT SECTION ###################### */
+
+.settings-section {
+  margin: 20px 0;
+  padding: 15px;
+  background: #f8f8f8;
+  border-radius: 4px;
+}
+
+.settings-section h4 {
+  margin: 0 0 10px 0;
+  color: #666;
+}
+
+#settings-account-status p {
+  margin: 0 0 10px 0;
+}
