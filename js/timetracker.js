@@ -5250,13 +5250,30 @@ function synchIconStatus(status) {
   }
 }
 
-// Main sync function - uploads full data
+// Main sync function
 function synchToServer() {
   if (!isLoggedIn()) {
     showAuthModal('login');
     return;
   }
 
+  // Check if we have local changes
+  var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
+                        (synchQueue.queue && synchQueue.queue.length > 0);
+
+  // If there are local changes, use incremental sync to avoid overwriting server data
+  if (hasLocalChanges) {
+    console.log('[SYNC] Has local changes, using incremental sync');
+    synchIncremental();
+    return;
+  }
+
+  // No local changes - safe to do full download from server
+  console.log('[SYNC] No local changes, downloading from server');
+  synchFromServer();
+  return;
+
+  // --- Full upload code below is kept for explicit full sync scenarios ---
   synchIconStatus("synching");
 
   console.log('[SYNC] Starting full sync to server');
@@ -5426,8 +5443,18 @@ function synchIncremental() {
           applyServerChanges(result.changes);
         }
 
+        // Update rootOrder from server (server has authoritative order)
+        if (result.rootOrder && Array.isArray(result.rootOrder)) {
+          ttData.rootOrder = result.rootOrder;
+        }
+
         ttSave();
-        setFeedback('Synced ' + result.stats.processed + ' changes');
+        var msg = 'Synced';
+        if (result.stats) {
+          if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
+          if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
+        }
+        setFeedback(msg);
         synchIconStatus("done");
         emitEvent('server', 'synch');
       } else {
