@@ -907,6 +907,16 @@ function ttInit(){
      }, 500);
    }
 
+   // Global event watcher: sync node updates to server queue
+   addEventWatcher('node', 'updated', function(nodeId) {
+     if (nodeId) {
+       var node = getNode(nodeId);
+       if (node && node.name && node.name.trim()) {
+         synchQueue.add("update", "node", nodeId, node.parentId);
+       }
+     }
+   }, 'global');
+
 }
 
 /* ################################## INPUT HANDLING FUNCTIONS ################################## */
@@ -2738,10 +2748,13 @@ taskList.filter = function(){
     });
 
 
-   if(taskList.tasks.length < 1){
-     document.getElementById("no-data-found-table").style.display = "table-row";
-   }else{
-     document.getElementById("no-data-found-table").style.display = "none";
+   var noDataRow = document.getElementById("no-data-found-table");
+   if (noDataRow) {
+     if(taskList.tasks.length < 1){
+       noDataRow.style.display = "table-row";
+     }else{
+       noDataRow.style.display = "none";
+     }
    }
 }
 
@@ -2910,6 +2923,7 @@ var treeView = {};
 treeView.searchFilter = '';
 treeView.hideCompleted = true;
 treeView.focusedNodeId = null;
+treeView.pendingNode = null; // { parentId, afterNodeId } - DOM-only until content added
 
 /**
  * Check if a node is a "task" (leaf node with no children)
@@ -2943,29 +2957,47 @@ treeView.refresh = function() {
 
   container.innerHTML = '';
 
-  if (!isNodeStructure()) {
-    container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
-    container.onclick = function() { treeView.addFirst(); };
-    return;
+  // Handle empty tree case - but still render pending if exists
+  if (!isNodeStructure() || (ttData.rootOrder || []).length === 0) {
+    // If we have a pending node for empty tree, render it
+    if (treeView.pendingNode && treeView.pendingNode.parentId === null && treeView.pendingNode.afterNodeId === null) {
+      container.onclick = null;
+      treeView.renderPendingRow(container, 0);
+    } else {
+      container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
+      container.onclick = function() { treeView.addFirst(); };
+    }
+  } else {
+    container.onclick = null;
+    var rootOrder = ttData.rootOrder || [];
+
+    // Handle pending as first root node
+    if (treeView.pendingNode &&
+        treeView.pendingNode.afterNodeId === null &&
+        treeView.pendingNode.parentId === null) {
+      treeView.renderPendingRow(container, 0);
+    }
+
+    // Render all root nodes
+    for (var i = 0; i < rootOrder.length; i++) {
+      treeView.renderNode(container, rootOrder[i], 0);
+
+      // Render pending row after this node if appropriate
+      if (treeView.pendingNode &&
+          treeView.pendingNode.afterNodeId === rootOrder[i] &&
+          treeView.pendingNode.parentId === null) {
+        treeView.renderPendingRow(container, 0);
+      }
+    }
   }
 
-  var rootOrder = ttData.rootOrder || [];
-
-  if (rootOrder.length === 0) {
-    container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
-    container.onclick = function() { treeView.addFirst(); };
-    return;
-  }
-
-  container.onclick = null;
-
-  // Render all root nodes
-  for (var i = 0; i < rootOrder.length; i++) {
-    treeView.renderNode(container, rootOrder[i], 0);
-  }
-
-  // Restore focus if we had one
-  if (treeView.focusedNodeId) {
+  // Restore focus
+  if (treeView.focusedNodeId === '_pending') {
+    var pendingInput = container.querySelector('.tree-row-pending .tree-text');
+    if (pendingInput) {
+      pendingInput.focus();
+    }
+  } else if (treeView.focusedNodeId) {
     var input = container.querySelector('[data-node-id="' + treeView.focusedNodeId + '"] .tree-text');
     if (input) {
       input.focus();
@@ -3088,10 +3120,13 @@ treeView.renderNode = function(container, nodeId, depth) {
   text.placeholder = 'Type here...';
   text.setAttribute('data-node-id', nodeId);
 
-  // Handle input changes
+  // Track original value for change detection
+  var originalName = null;
+  var originalEstimate = null;
+
+  // Handle input changes - update node but don't save yet (save on blur)
   text.oninput = function() {
     node.name = this.value;
-    ttSave();
   };
 
   // Handle keyboard
@@ -3102,21 +3137,33 @@ treeView.renderNode = function(container, nodeId, depth) {
   text.onfocus = function() {
     treeView.focusedNodeId = nodeId;
     row.classList.add('editing');
+    // Capture original values for change detection
+    originalName = node.name;
+    originalEstimate = node.estimate;
   };
 
   text.onblur = function() {
     row.classList.remove('editing');
+
+    var hasChanges = false;
+
     // Parse estimate from name (e.g. "Fix bug (30 m)" or "Fix bug 30m")
     if (node.name) {
       var parsed = parseEstimateFromInput(node.name);
       if (parsed.estimate > 0) {
         node.name = parsed.name;
         node.estimate = parsed.estimate;
-        ttSave();
-        setTimeout(function() { treeView.refresh(); }, 10);
-        return;
       }
     }
+
+    // Check if anything changed
+    if (node.name !== originalName || node.estimate !== originalEstimate) {
+      hasChanges = true;
+      ttSave();
+      // Emit event to trigger sync (event watcher handles sync queue)
+      emitEvent('node', 'updated', nodeId);
+    }
+
     // Clean up empty nodes on blur
     if (!node.name.trim() && nodeIsTask(nodeId)) {
       // Don't delete if it's the only node
@@ -3171,14 +3218,85 @@ treeView.renderNode = function(container, nodeId, depth) {
     var childContainer = document.createElement('div');
     childContainer.className = 'tree-children';
 
+    // Handle pending as first child
+    if (treeView.pendingNode &&
+        treeView.pendingNode.afterNodeId === null &&
+        treeView.pendingNode.parentId === nodeId) {
+      treeView.renderPendingRow(childContainer, depth + 1);
+    }
+
     for (var i = 0; i < node.childOrder.length; i++) {
       treeView.renderNode(childContainer, node.childOrder[i], depth + 1);
+
+      // Render pending row after this child if appropriate
+      if (treeView.pendingNode &&
+          treeView.pendingNode.afterNodeId === node.childOrder[i] &&
+          treeView.pendingNode.parentId === nodeId) {
+        treeView.renderPendingRow(childContainer, depth + 1);
+      }
     }
 
     if (childContainer.children.length > 0) {
       container.appendChild(childContainer);
     }
   }
+};
+
+// Render a pending (DOM-only) row for new node input
+treeView.renderPendingRow = function(container, depth) {
+  var row = document.createElement('div');
+  row.className = 'tree-row tree-row-pending';
+  row.style.paddingLeft = (depth * 22) + 'px';
+
+  // Bullet
+  var bullet = document.createElement('span');
+  bullet.className = 'tree-bullet';
+  bullet.innerHTML = '&#8226;';
+  row.appendChild(bullet);
+
+  // Input
+  var text = document.createElement('input');
+  text.type = 'text';
+  text.className = 'tree-text';
+  text.value = '';
+  text.placeholder = 'Type here...';
+
+  text.onkeydown = function(e) {
+    // Enter: finalize and add another
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var value = this.value.trim();
+      if (value) {
+        treeView.finalizePending(value, true); // true = add another after
+      }
+      return;
+    }
+
+    // Escape or Backspace on empty: cancel
+    if (e.key === 'Escape' || (e.key === 'Backspace' && this.value === '')) {
+      e.preventDefault();
+      treeView.cancelPending();
+      return;
+    }
+  };
+
+  text.onblur = function() {
+    // Small delay to allow keydown handlers to fire first
+    var textValue = text.value;
+    setTimeout(function() {
+      if (!treeView.pendingNode) return; // Already handled
+
+      var value = textValue.trim();
+      if (value) {
+        treeView.finalizePending(value, false);
+      } else {
+        treeView.cancelPending();
+      }
+    }, 10);
+  };
+
+  row.appendChild(text);
+  container.appendChild(row);
 };
 
 treeView.handleKeydown = function(e, nodeId, depth) {
@@ -3228,14 +3346,17 @@ treeView.handleKeydown = function(e, nodeId, depth) {
   }
 };
 
-// Add first node when tree is empty
+// Add first node when tree is empty (using pending node approach)
 treeView.addFirst = function() {
-  var node = createNode(null, { name: '', type: 'task' });
-  treeView.focusedNodeId = node.id;
+  treeView.pendingNode = {
+    parentId: null,
+    afterNodeId: null  // First in root
+  };
+  treeView.focusedNodeId = '_pending';
   treeView.refresh();
 };
 
-// Add sibling after current node
+// Add sibling after current node (using pending node approach)
 treeView.addSibling = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
@@ -3246,24 +3367,85 @@ treeView.addSibling = function(nodeId) {
     if (parsed.estimate > 0) {
       node.name = parsed.name;
       node.estimate = parsed.estimate;
+      ttSave();
     }
   }
 
-  var parentId = node.parentId;
-  var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
-  var idx = siblings.indexOf(nodeId);
+  // Sync current node if it has content (handles edits before moving to new node)
+  if (node.name && node.name.trim()) {
+    emitEvent('node', 'updated', nodeId);
+  }
 
-  // Create new node
-  var newNode = createNode(parentId, { name: '', type: 'task' });
+  // Set up pending node (DOM-only until content is added)
+  treeView.pendingNode = {
+    parentId: node.parentId,
+    afterNodeId: nodeId
+  };
+  treeView.focusedNodeId = '_pending';
+  treeView.refresh();
+};
 
-  // Move it to right after current node
-  var newSiblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
-  var newIdx = newSiblings.indexOf(newNode.id);
-  newSiblings.splice(newIdx, 1);
-  newSiblings.splice(idx + 1, 0, newNode.id);
+// Finalize a pending node by creating it in data
+treeView.finalizePending = function(name, addAnother) {
+  var pending = treeView.pendingNode;
+  if (!pending) return;
+
+  // Parse estimate from name
+  var parsed = parseEstimateFromInput(name);
+
+  // Create the real node with content
+  var newNode = createNode(pending.parentId, {
+    name: parsed.name,
+    type: 'task',
+    estimate: parsed.estimate
+  });
+
+  // Position it correctly (after the afterNodeId)
+  if (pending.afterNodeId) {
+    var siblings = pending.parentId ? getNode(pending.parentId).childOrder : ttData.rootOrder;
+    var newIdx = siblings.indexOf(newNode.id);
+    var afterIdx = siblings.indexOf(pending.afterNodeId);
+    if (newIdx !== -1 && afterIdx !== -1 && newIdx !== afterIdx + 1) {
+      siblings.splice(newIdx, 1);
+      siblings.splice(afterIdx + 1, 0, newNode.id);
+      // Sync parent's updated childOrder after repositioning
+      if (pending.parentId) {
+        emitEvent('node', 'updated', pending.parentId);
+      }
+    }
+  }
 
   ttSave();
-  treeView.focusedNodeId = newNode.id;
+
+  // Clear pending
+  treeView.pendingNode = null;
+
+  if (addAnother) {
+    // Add another pending after the new node
+    treeView.pendingNode = {
+      parentId: pending.parentId,
+      afterNodeId: newNode.id
+    };
+    treeView.focusedNodeId = '_pending';
+  } else {
+    treeView.focusedNodeId = newNode.id;
+  }
+
+  treeView.refresh();
+};
+
+// Cancel a pending node (discard without creating)
+treeView.cancelPending = function() {
+  var pending = treeView.pendingNode;
+  treeView.pendingNode = null;
+
+  // Focus the node we were adding after, or first node
+  if (pending && pending.afterNodeId) {
+    treeView.focusedNodeId = pending.afterNodeId;
+  } else {
+    treeView.focusedNodeId = (ttData.rootOrder && ttData.rootOrder[0]) || null;
+  }
+
   treeView.refresh();
 };
 
@@ -3401,7 +3583,7 @@ treeView.toggleComplete = function(nodeId, checkbox) {
   if (!node) return;
   node.status = checkbox.checked ? 'completed' : 'inProcess';
   ttSave();
-  emitEvent('task', 'updated');
+  emitEvent('node', 'updated', nodeId);
   if (treeView.hideCompleted) {
     treeView.refresh();
   }
@@ -3413,7 +3595,7 @@ treeView.toggleStar = function(nodeId) {
   node.starred = node.starred === '1' ? '0' : '1';
   ttSave();
   treeView.refresh();
-  emitEvent('task', 'updated');
+  emitEvent('node', 'updated', nodeId);
 };
 
 treeView.startSession = function(nodeId) {
@@ -4657,7 +4839,7 @@ todayView.toggleNodeComplete = function(nodeId, checkbox) {
   node.status = checkbox.checked ? 'completed' : 'inProcess';
   ttSave();
   todayView.update();
-  emitEvent('task', 'updated');
+  emitEvent('node', 'updated', nodeId);
 };
 
 todayView.toggleNodeStar = function(nodeId) {
@@ -4667,7 +4849,7 @@ todayView.toggleNodeStar = function(nodeId) {
   node.starred = node.starred === '1' ? '0' : '1';
   ttSave();
   todayView.update();
-  emitEvent('task', 'updated');
+  emitEvent('node', 'updated', nodeId);
 };
 
 todayView.refresh = function(){
@@ -5340,6 +5522,7 @@ function synchFromServer() {
   $.ajax({
     url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
     type: 'GET',
+    cache: false,  // Prevent browser caching of sync data
     contentType: 'application/json',
     headers: { 'Authorization': 'Bearer ' + authToken },
     success: function(result) {
@@ -6313,6 +6496,8 @@ function createNode(parentId, data) {
     if (parent) {
       if (!parent.childOrder) parent.childOrder = [];
       parent.childOrder.push(node.id);
+      // Sync parent to update its childOrder on server
+      synchQueue.add("update", "node", parentId, parent.parentId);
     }
   }
 
@@ -6356,8 +6541,11 @@ function deleteNode(id, cascade) {
   var node = getNode(id);
   if (!node) return false;
 
-  // Queue for sync before deletion (need to capture parentId)
-  synchQueue.add("delete", "node", id, node.parentId);
+  // Only add delete to sync queue if node has been synced (has content)
+  // Empty nodes were never synced, so no need to send delete
+  if (node.name && node.name.trim()) {
+    synchQueue.add("delete", "node", id, node.parentId);
+  }
 
   if (cascade) {
     // Delete all children recursively
@@ -6395,6 +6583,8 @@ function deleteNode(id, cascade) {
     if (parent && parent.childOrder) {
       var idx = parent.childOrder.indexOf(id);
       if (idx > -1) parent.childOrder.splice(idx, 1);
+      // Sync parent's updated childOrder
+      synchQueue.add("update", "node", node.parentId, parent.parentId);
     }
   }
 
@@ -6423,6 +6613,8 @@ function moveNode(id, newParentId, index) {
       if (path[i].id === id) return false;
     }
   }
+
+  var oldParentId = node.parentId;
 
   // Remove from old parent
   if (node.parentId === null) {
@@ -6458,8 +6650,24 @@ function moveNode(id, newParentId, index) {
     }
   }
 
-  // Queue for sync (captures new parentId)
+  // Queue for sync - sync the moved node
   synchQueue.add("update", "node", id, newParentId);
+
+  // Sync old parent's childOrder (if it was a non-root parent)
+  if (oldParentId !== null) {
+    var oldParent = getNode(oldParentId);
+    if (oldParent) {
+      synchQueue.add("update", "node", oldParentId, oldParent.parentId);
+    }
+  }
+
+  // Sync new parent's childOrder (if it's a non-root parent)
+  if (newParentId !== null) {
+    var newParent = getNode(newParentId);
+    if (newParent) {
+      synchQueue.add("update", "node", newParentId, newParent.parentId);
+    }
+  }
 
   ttSave();
   return true;
