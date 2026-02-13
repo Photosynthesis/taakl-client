@@ -2960,6 +2960,8 @@ var treeView = {};
 treeView.searchFilter = '';
 treeView.hideCompleted = true;
 treeView.focusedNodeId = null;
+treeView.originalValues = {}; // Store original values for change detection
+treeView.updateScheduled = false; // Prevent redundant updates
 
 /**
  * Check if a node is a "task" (leaf node with no children)
@@ -2980,6 +2982,10 @@ treeView.show = function() {
     treeView.update();
   }, 'treeView');
 
+  addEventWatcher('node', 'updated', function() {
+    treeView.update();
+  }, 'treeView');
+
   treeView.update();
 };
 
@@ -2988,6 +2994,17 @@ treeView.hide = function() {
 };
 
 treeView.update = function() {
+  // Debounce: if update is already scheduled, skip this call
+  if (treeView.updateScheduled) return;
+
+  treeView.updateScheduled = true;
+  setTimeout(function() {
+    treeView.updateScheduled = false;
+    treeView._doUpdate();
+  }, 0);
+};
+
+treeView._doUpdate = function() {
   var container = gebi('node-tree');
   if (!container) return;
 
@@ -3141,24 +3158,15 @@ treeView.renderNode = function(container, nodeId, depth) {
   text.placeholder = 'Type here...';
   text.setAttribute('data-node-id', nodeId);
 
-  // Track original value for change detection
-  var originalName = null;
-  var originalEstimate = null;
-
-  // Handle input changes - update node but don't save yet (save on blur)
+  // Handle input changes - update node but don't save yet (save on blur/Enter)
   text.oninput = function() {
     node.name = this.value;
 
-    // Promote provisional node to real when content added
+    // Promote provisional node to real when content added (don't parse estimate yet)
     if (node.provisional && this.value.trim()) {
       delete node.provisional;
 
-      // Parse estimate from input
-      var parsed = parseEstimateFromInput(node.name);
-      node.name = parsed.name;
-      node.estimate = parsed.estimate;
-
-      // Now sync it
+      // Now sync it (estimate will be parsed on blur or Enter)
       synchQueue.add("insert", "node", node.id, node.parentId);
 
       // Sync parent to update childOrder
@@ -3181,9 +3189,11 @@ treeView.renderNode = function(container, nodeId, depth) {
   text.onfocus = function() {
     treeView.focusedNodeId = nodeId;
     row.classList.add('editing');
-    // Capture original values for change detection
-    originalName = node.name;
-    originalEstimate = node.estimate;
+    // Store original values for change detection (survives re-renders)
+    treeView.originalValues[nodeId] = {
+      name: node.name,
+      estimate: node.estimate || 0
+    };
   };
 
   text.onblur = function() {
@@ -3197,24 +3207,8 @@ treeView.renderNode = function(container, nodeId, depth) {
       return;
     }
 
-    var hasChanges = false;
-
-    // Parse estimate from name (e.g. "Fix bug (30 m)" or "Fix bug 30m")
-    if (node.name) {
-      var parsed = parseEstimateFromInput(node.name);
-      if (parsed.estimate > 0) {
-        node.name = parsed.name;
-        node.estimate = parsed.estimate;
-      }
-    }
-
-    // Check if anything changed
-    if (node.name !== originalName || node.estimate !== originalEstimate) {
-      hasChanges = true;
-      ttSave();
-      // Emit event to trigger sync (event watcher handles sync queue)
-      emitEvent('node', 'updated', nodeId);
-    }
+    // Parse estimate and save changes (emits 'node' 'updated' event which triggers refresh)
+    treeView.finalizeNode(nodeId);
 
     // Clean up empty nodes on blur (for non-provisional nodes)
     if (!node.provisional && !node.name.trim() && nodeIsTask(nodeId)) {
@@ -3283,25 +3277,60 @@ treeView.renderNode = function(container, nodeId, depth) {
   }
 };
 
+// Finalize a node: parse estimate from name and save changes
+// This is called automatically on blur, so no need to call manually in most cases
+treeView.finalizeNode = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  // Get original values from storage (survives re-renders)
+  var original = treeView.originalValues[nodeId];
+  if (!original) {
+    // No original values stored, nothing to compare
+    return;
+  }
+
+  var originalName = original.name || '';
+  var originalEstimate = original.estimate || 0;
+
+  // Parse estimate from name (e.g. "Fix bug (30 m)" or "Fix bug 30m")
+  if (node.name) {
+    var parsed = parseEstimateFromInput(node.name);
+    if (parsed.estimate > 0) {
+      node.name = parsed.name;
+      node.estimate = parsed.estimate;
+    }
+  }
+
+  // Check if anything changed and save
+  if (node.name !== originalName || node.estimate !== originalEstimate) {
+    ttSave();
+    emitEvent('node', 'updated', nodeId);
+  }
+
+  // Clean up stored values
+  delete treeView.originalValues[nodeId];
+};
+
 treeView.handleKeydown = function(e, nodeId, depth) {
   var node = getNode(nodeId);
   if (!node) return;
 
-  // Enter: Create new sibling below
+  // Enter: Create new sibling below (blur will finalize automatically)
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     treeView.addSibling(nodeId);
     return;
   }
 
-  // Tab: Indent (become child of previous sibling)
+  // Tab: Indent (blur will finalize automatically)
   if (e.key === 'Tab' && !e.shiftKey) {
     e.preventDefault();
     treeView.indent(nodeId);
     return;
   }
 
-  // Shift+Tab: Outdent (move up one level)
+  // Shift+Tab: Outdent (blur will finalize automatically)
   if (e.key === 'Tab' && e.shiftKey) {
     e.preventDefault();
     treeView.outdent(nodeId);
@@ -3315,14 +3344,14 @@ treeView.handleKeydown = function(e, nodeId, depth) {
     return;
   }
 
-  // Arrow Up: Focus previous node
+  // Arrow Up: Focus previous (blur will finalize automatically)
   if (e.key === 'ArrowUp') {
     e.preventDefault();
     treeView.focusPrev(nodeId);
     return;
   }
 
-  // Arrow Down: Focus next node
+  // Arrow Down: Focus next (blur will finalize automatically)
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     treeView.focusNext(nodeId);
@@ -3342,20 +3371,8 @@ treeView.addSibling = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
 
-  // Parse estimate from current node before moving on
-  if (node.name) {
-    var parsed = parseEstimateFromInput(node.name);
-    if (parsed.estimate > 0) {
-      node.name = parsed.name;
-      node.estimate = parsed.estimate;
-      ttSave();
-    }
-  }
-
-  // Sync current node if it has content (handles edits before moving to new node)
-  if (node.name && node.name.trim()) {
-    emitEvent('node', 'updated', nodeId);
-  }
+  // Note: estimate parsing and saving happens automatically on blur
+  // when focus moves to the new node
 
   // Create provisional sibling
   var newNode = createNode(node.parentId, {type: 'task'}, true);
@@ -3499,6 +3516,7 @@ treeView.toggle = function(nodeId) {
   if (!node) return;
   node.collapsed = !node.collapsed;
   ttSave();
+  emitEvent('node', 'updated', nodeId);
   treeView.update();
 };
 
@@ -5513,7 +5531,14 @@ function synchFromServer() {
           serverData.rootOrder = [];
         }
 
+        // Preserve local rootOrder through full sync
+        var localRootOrder = ttData.rootOrder || [];
+
         ttData = serverData;
+
+        // Merge: preserve local ordering, incorporate server additions/deletions
+        ttData.rootOrder = mergeRootOrder(localRootOrder, serverData.rootOrder, ttData.nodes);
+
         ttSave();
         setFeedback('Data successfully synced from server.');
         synchIconStatus("done");
@@ -5586,9 +5611,9 @@ function synchIncremental() {
           applyServerChanges(result.changes);
         }
 
-        // Update rootOrder from server (server has authoritative order)
+        // Merge rootOrder: preserve local ordering, incorporate server additions/deletions
         if (result.rootOrder && Array.isArray(result.rootOrder)) {
-          ttData.rootOrder = result.rootOrder;
+          ttData.rootOrder = mergeRootOrder(ttData.rootOrder || [], result.rootOrder, ttData.nodes || {});
         }
 
         ttSave();
@@ -5617,6 +5642,36 @@ function synchIncremental() {
       synchIconStatus("error");
     }
   });
+}
+
+function mergeRootOrder(localOrder, serverOrder, nodes) {
+  var merged = [];
+  var seen = {};
+
+  // Keep local items that still exist (preserves user's ordering)
+  for (var i = 0; i < localOrder.length; i++) {
+    if (nodes[localOrder[i]]) {
+      merged.push(localOrder[i]);
+      seen[localOrder[i]] = true;
+    }
+  }
+
+  // Append server items not in local (new nodes from another device)
+  for (var i = 0; i < serverOrder.length; i++) {
+    if (!seen[serverOrder[i]] && nodes[serverOrder[i]]) {
+      merged.push(serverOrder[i]);
+      seen[serverOrder[i]] = true;
+    }
+  }
+
+  // Safety net: catch any root nodes missing from both orders
+  for (var id in nodes) {
+    if (nodes[id].parentId === null && !seen[id]) {
+      merged.push(id);
+    }
+  }
+
+  return merged;
 }
 
 // Apply changes received from server
