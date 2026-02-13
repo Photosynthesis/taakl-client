@@ -3027,6 +3027,13 @@ treeView._doUpdate = function() {
   }
   treeView._isRendering = false;
 
+  // Auto-size all textareas now that the full tree is in the DOM
+  var textareas = container.querySelectorAll('.tree-text');
+  for (var i = 0; i < textareas.length; i++) {
+    textareas[i].style.height = 'auto';
+    textareas[i].style.height = textareas[i].scrollHeight + 'px';
+  }
+
   // Restore focus
   if (treeView.focusedNodeId) {
     var input = container.querySelector('[data-node-id="' + treeView.focusedNodeId + '"] .tree-text');
@@ -3073,7 +3080,6 @@ treeView.renderNode = function(container, nodeId, depth) {
   row.className = 'tree-row' + headingClass + (isCompleted ? ' completed' : '') + (isProvisional ? ' tree-row-provisional' : '');
   row.setAttribute('data-node-id', nodeId);
   row.setAttribute('data-depth', depth);
-  row.style.paddingLeft = (depth * 22) + 'px';
 
   // Bullet/toggle (also serves as drag handle)
   var bullet = document.createElement('span');
@@ -3154,15 +3160,22 @@ treeView.renderNode = function(container, nodeId, depth) {
   }
 
   // Editable text input
-  var text = document.createElement('input');
-  text.type = 'text';
+  var text = document.createElement('textarea');
+  text.rows = 1;
   text.className = 'tree-text';
   text.value = node.name;
   text.placeholder = 'Type here...';
   text.setAttribute('data-node-id', nodeId);
 
+  // Auto-resize textarea height to fit content
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
   // Handle input changes - update node but don't save yet (save on blur/Enter)
   text.oninput = function() {
+    autoResize(this);
     node.name = this.value;
 
     // Promote provisional node to real when content added (don't parse estimate yet)

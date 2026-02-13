@@ -1049,6 +1049,9 @@ color: #000;
   color: #333;
   outline: none;
   min-width: 50px;
+  resize: none;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .tree-text:focus {
@@ -1124,7 +1127,7 @@ color: #000;
 
 /* Children container */
 .tree-children {
-  margin-left: 22px;
+  margin-left: var(--tree-indent, 22px);
   border-left: 1px solid #eee;
   padding-left: 0;
 }
@@ -1160,6 +1163,10 @@ color: #000;
 
 /* Mobile */
 @media all and (max-width: 650px) {
+  :root {
+    --tree-indent: 14px;
+  }
+
   #tree-controls {
     flex-wrap: wrap;
   }
@@ -1175,6 +1182,37 @@ color: #000;
   .tree-play,
   .tree-star {
     opacity: 1;
+  }
+
+  /* Larger grab areas for drag and drop */
+  .tree-bullet {
+    width: 32px;
+    height: 32px;
+    font-size: 0.85em;
+  }
+
+  .tree-check {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Text wrapping for long node names */
+  .node-tree .tree-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    width: 0; /* override intrinsic textarea width so flex: 1 controls sizing */
+  }
+
+  /* Smaller indents */
+  .tree-children {
+    margin-left: var(--tree-indent, 14px);
+  }
+
+  /* Row alignment for wrapping text */
+  .tree-row {
+    align-items: flex-start;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
   }
 }
 
