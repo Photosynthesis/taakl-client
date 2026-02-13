@@ -2962,6 +2962,7 @@ treeView.hideCompleted = true;
 treeView.focusedNodeId = null;
 treeView.originalValues = {}; // Store original values for change detection
 treeView.updateScheduled = false; // Prevent redundant updates
+treeView._isRendering = false; // True during DOM rebuild (suppresses blur side-effects)
 
 /**
  * Check if a node is a "task" (leaf node with no children)
@@ -3008,6 +3009,7 @@ treeView._doUpdate = function() {
   var container = gebi('node-tree');
   if (!container) return;
 
+  treeView._isRendering = true;
   container.innerHTML = '';
 
   // Empty tree case
@@ -3023,6 +3025,7 @@ treeView._doUpdate = function() {
       treeView.renderNode(container, rootOrder[i], 0);
     }
   }
+  treeView._isRendering = false;
 
   // Restore focus
   if (treeView.focusedNodeId) {
@@ -3197,12 +3200,15 @@ treeView.renderNode = function(container, nodeId, depth) {
   };
 
   text.onblur = function() {
+    // Ignore blur caused by DOM rebuild in _doUpdate()
+    if (treeView._isRendering) return;
+
     row.classList.remove('editing');
+    treeView.focusedNodeId = null;
 
     // Delete provisional nodes if empty
     if (node.provisional && !node.name.trim()) {
       deleteNodeLocally(nodeId);  // Don't sync (never was synced)
-      treeView.focusedNodeId = null;
       treeView.update();
       return;
     }
@@ -3216,7 +3222,6 @@ treeView.renderNode = function(container, nodeId, depth) {
       var siblings = node.parentId ? getNode(node.parentId).childOrder : ttData.rootOrder;
       if (siblings.length > 1) {
         deleteNode(nodeId, true);
-        treeView.focusedNodeId = null;
         setTimeout(function() { treeView.update(); }, 10);
       }
     }
@@ -3371,8 +3376,8 @@ treeView.addSibling = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
 
-  // Note: estimate parsing and saving happens automatically on blur
-  // when focus moves to the new node
+  // Finalize current node before moving on (blur is suppressed during re-render)
+  treeView.finalizeNode(nodeId);
 
   // Create provisional sibling
   var newNode = createNode(node.parentId, {type: 'task'}, true);
@@ -3394,6 +3399,8 @@ treeView.addSibling = function(nodeId) {
 treeView.indent = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
+
+  treeView.finalizeNode(nodeId);
 
   var parentId = node.parentId;
   var siblings = parentId ? getNode(parentId).childOrder : ttData.rootOrder;
@@ -3418,6 +3425,8 @@ treeView.indent = function(nodeId) {
 treeView.outdent = function(nodeId) {
   var node = getNode(nodeId);
   if (!node || !node.parentId) return; // Can't outdent root items
+
+  treeView.finalizeNode(nodeId);
 
   var parent = getNode(node.parentId);
   var grandparentId = parent.parentId;
