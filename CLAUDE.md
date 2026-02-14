@@ -32,13 +32,11 @@ There are no tests, no linter, and no CI pipeline. All testing is manual via the
 
 ### Key Files
 
-- **`js/timetracker.js`** (~7,100 lines) — entire application logic: data model, views, sync, event system
+- **`js/timetracker.js`** (~4,600 lines) — entire application logic: data model, views, sync, event system
 - **`index.html`** — single-page shell, loads all scripts, contains all HTML structure
 - **`css/timetracker-flat.css`** — primary stylesheet
 
-### Data Model (v2 "Node" Structure)
-
-The app has two data versions. **v2 is current**; v1 is legacy. Check with `isNodeStructure()` (returns true for v2).
+### Data Model (Node Structure)
 
 ```
 ttData = {
@@ -67,13 +65,12 @@ Views are singleton objects with a `.show()` / `.hide()` / `.update()` lifecycle
 
 | Object | Purpose |
 |---|---|
-| `treeView` | Primary outliner UI for v2 data (tree with indent/outdent, drag-drop, inline editing) |
-| `taskList` | Legacy flat list UI for v1 data |
+| `treeView` | Primary outliner UI (tree with indent/outdent, drag-drop, inline editing) |
 | `todayView` | Daily focus view (starred tasks + `#daily` tagged tasks) |
 | `analyze` | Review/analytics view with Chart.js bar charts and timeline |
 | `settingsView` | Account, import/export, settings |
 
-`setView(name)` switches views. For "taskList", it routes to `treeView` when data is v2.
+`setView(name)` switches views. The "taskList" view name routes to `treeView`.
 
 ### Event System
 
@@ -95,7 +92,7 @@ Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (ac
 
 ### Session Tracking
 
-`startGeneralSession(taskId)` → timer runs → `stopGeneralSession()`. Active session ID stored in `localStorage.ttSessionId`. Elapsed time shows in the browser tab title.
+`startNodeSession()` → timer runs → `endNodeSession()`. Active session ID stored in `localStorage.ttSessionId`, active node in `localStorage.ttCurrentNodeId`. Elapsed time shows in the browser tab title.
 
 ## Code Conventions
 

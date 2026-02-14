@@ -106,9 +106,6 @@ td.header{
   padding-left: 0px;
 }
 
-#tasklist-new-task-form{
-  margin-bottom: 1em;
-}
 
 .button:active{
   background-color: #666;
@@ -401,42 +398,6 @@ a.current-view{
 color: #000;
 }
 
-.task{
-  padding: 15px 10px 15px 10px;
-  /* border-bottom: 1px solid #ccc;  */
-}
-
-.task:hover{
-  background-color: #eef;
-}
-
-.Completed{
-  color: #999;
-}
-
-#task-list{
-  margin-top: 30px;
-  margin-bottom: 3em;
-}
-
-.task-meta{
-  font-size: 0.8em;
-  color: #777;
-  display: inline-block;
-  margin-left: 20px;
-}
-
-.task-meta span:before{
-  content: " | ";
-}
-
-.task-meta span:first-child:before{
-  content: "";
-}
-
-.task-meta .task-estimate{
-  color: #5a9;
-}
 
 /* Task star icon */
 .task-star {
@@ -454,101 +415,9 @@ color: #000;
   color: #e8c547;
 }
 
-/* Filter star icon */
-#filter-starred {
-  cursor: pointer;
-  color: #ccc;
-  font-size: 1.2em;
-  transition: color 0.2s ease;
-}
-
-#filter-starred:hover {
-  color: #e8c547;
-}
-
-#filter-starred.filter-active {
-  color: #e8c547;
-}
-
-
-/* Control Box Styles */
-#client-project-controls, .view-container, #header, #feedback{
+/* Layout */
+.view-container, #header, #feedback{
   margin: 3%;
-}
-
-.control-container:first-child{
-  margin-right: 4%;
-}
-
-
-
-.control-container{
-  width: 48%;
-  float: left;
-  /* border: 1px solid #cccccc; */
-  padding: 0;
-  height: 53px;
-  margin-top: 20px;
-  /* background-color: #fff; */
-}
-
-.control-container select, .control-container input{
-  width: 80%;
-  margin:0;
-  border: 0;
-  padding: 14px;
-  font-size: 1.1em;
-}
-
-#select-client-form, #select-project-form, #add-project-form, #add-client-form{
-   padding-top: 0px;
-   background: #fff;
-}
-
-
-.control-container a:first-of-type{
-  border-radius: 0 4px 4px 0;
-
-}
-
-.control-container .button{
-  float: right;
-  height: 51px;
-  width: 10%;
-  padding: 0;
-  padding-top: 17px;
-  margin: 0;
-  /* margin-top: -7px !important; */
-  background-color: #f1f1f1;
-  border: 0;
-  border-left: 1px solid #e8e8e8;
-  color: #888;
-  text-align:center;
-}
-
-
-.control-container .button:hover{
-  background-color: #ccc;
-}
-
-.control-title-container{
-  margin-top: -13px;
-  margin-left: 12px;
-  margin-bottom: 0;
-  color: #bbbbbb;
-}
-
-.control-title{
-  font-size: 0.95em;
-  padding-left: 5px;
-  padding-right: 5px;
-  padding-bottom: 0;
-  /* background-color: #fff; */
-  display: inline-block;
-}
-
-.rounded{
-  border-radius: 5px;
 }
 
 
@@ -563,25 +432,6 @@ color: #000;
 }
 
 
-#hide-completed{
-  margin-left: 30px;
-  margin-right: 10px;
-  margin-top: 5px;
-}
-
-#taskList-options{
-  position: fixed;
-  bottom: 0px;
-  color: #666;
-  font-size: 0.9em;
-  margin-top: 2em;
-  background-color: #fff;
-  padding-bottom: 1em;
-  padding-top: 1em;
-  padding-left: 3%;
-  margin-left: -3%;
-  width: 100%;
-}
 
 
 /* Settings */
@@ -621,11 +471,6 @@ color: #000;
 
 
 @media all and ( max-width: 650px ) {
-  .control-container {
-    float: none;
-    width: auto;
-    margin-bottom: 30px;
-  }
 
   #header h1{
     font-size: 1.5em;
@@ -640,9 +485,6 @@ color: #000;
   .half-width{
     float: none;
     width: auto;
-  }
-  .control-container:first-child{
-    margin-right: 0;
   }
   .settings-label{
     float: none;
@@ -694,10 +536,6 @@ color: #000;
 
   #edit-popup{
     text-align: left;
-  }
-
-  #taskList-options{
-    /*position: relative;*/
   }
 
 }
@@ -796,134 +634,6 @@ color: #000;
 
 .today-task-item.today-dragging {
   opacity: 0.4;
-}
-
-/* ###################### AUTOCOMPLETE STYLES ###################### */
-
-/* Container for autocomplete - positioned relative to task input */
-#autocomplete-container,
-#today-autocomplete-container {
-  position: relative;
-  display: inline-block;
-  width: 85%;
-}
-
-/* Autocomplete dropdown */
-#task-autocomplete,
-#today-task-autocomplete {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  max-height: 250px;
-  overflow-y: auto;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-top: none;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-  z-index: 500;
-  display: none;
-}
-
-/* Individual autocomplete item */
-.autocomplete-item {
-  padding: 10px 14px;
-  cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.autocomplete-item:last-child {
-  border-bottom: none;
-}
-
-.autocomplete-item:hover,
-.autocomplete-item.selected {
-  background-color: #eef;
-}
-
-/* Client items */
-.autocomplete-item.client-item {
-  font-weight: 500;
-}
-
-.autocomplete-item.client-item::before {
-  content: "\f0b1";
-  font-family: FontAwesome;
-  margin-right: 8px;
-  color: #888;
-}
-
-/* Project items */
-.autocomplete-item.project-item {
-  padding-left: 28px;
-}
-
-.autocomplete-item.project-item::before {
-  content: "\f07b";
-  font-family: FontAwesome;
-  margin-right: 8px;
-  color: #aaa;
-}
-
-/* Item name and meta info */
-.autocomplete-item-name {
-  display: inline;
-}
-
-.autocomplete-item-meta {
-  font-size: 0.85em;
-  color: #999;
-  margin-left: 10px;
-}
-
-/* No matches message */
-.autocomplete-no-matches {
-  padding: 10px 14px;
-  color: #999;
-  font-style: italic;
-}
-
-/* ###################### TAG FILTER STYLES ###################### */
-
-#tag-filter-container {
-  display: inline-block;
-}
-
-#tag-filter-container .fa-tag {
-  color: #888;
-  margin-right: 5px;
-}
-
-#tag-filter-select {
-  min-width: 130px;
-  padding: 3px 5px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-}
-
-#active-tag-filters {
-  display: inline-block;
-  margin-left: 5px;
-}
-
-.tag-chip {
-  display: inline-block;
-  background: #e8e8ff;
-  color: #444;
-  padding: 3px 8px;
-  margin: 2px;
-  border-radius: 12px;
-  font-size: 0.9em;
-}
-
-.tag-chip i {
-  margin-left: 5px;
-  cursor: pointer;
-  color: #888;
-}
-
-.tag-chip i:hover {
-  color: #c00;
 }
 
 /* ###################### TREE VIEW STYLES (Outliner) ###################### */

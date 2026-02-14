@@ -60,53 +60,6 @@
       <div id="feedback" class="notice" style="display:none">
 
       </div>
-        <!-- Legacy client/project controls (hidden for v2) -->
-        <div id="client-project-controls" style="display: none;">
-          <!-- Client controls -->
-          <div class="control-container rounded" id="client-controls">
-            <div class="control-title-container"><div class="control-title">Client/Category</div></div>
-
-            <form method="post" id="client-form" action="" ondblclick="clientControls.showAddClientForm()">
-              <div id="add-client-form" style="display:none;">
-                    <input type="text" id="add-client-input" placeholder="New client name"/>
-                    <a href="#void" class="button" title="Save" onClick="saveClient()"><i class="fa fa-floppy-o" aria-hidden="true"></i></a>
-                    <a href="#void" class="button" title="Cancel" onClick="clientControls.cancelAddClientForm()"><i class="fa fa-times" aria-hidden="true"></i>
-  </a>
-              </div>
-
-              <div id="select-client-form" style="display:block;">
-              <select name="client_id" id="client-select" onchange="setClient()">
-                    <option value="all">- All Clients -</option>
-
-              </select>
-  <a href="#void" class="button" onClick="clientControls.showAddClientForm()"><i class="fa fa-plus" aria-hidden="true"></i>
-  </a>
-              <a href="#void" id="edit-client-button" class="button edit" title="Edit" onClick="showGeneralEditForm('client')"><i class="fa fa-pencil" aria-hidden="true"></i></a>
-              </div>
-            </form>
-          </div>
-
-          <!-- Project controls -->
-          <div class="control-container rounded" id="project-controls" style="display:none;">
-            <div class="control-title-container"><div class="control-title">Project</div></div>
-            <form method="post" id="project-form" action="">
-
-              <div id="add-project-form" style="display:none;">
-                  <input type="text" id="add-project-input" placeholder="New project name"/>
-                  <a href="#void" class="button" onClick="saveProject()"><i class="fa fa-floppy-o" aria-hidden="true"></i></a>
-                  <a href="#void" class="button" onClick="projectControls.cancelAddProjectForm()"><i class="fa fa-times" aria-hidden="true"></i></a>
-              </div>
-
-              <div id="select-project-form" style="display:block;">
-                <select name="project_id" id="project-select" onchange="setProject()">
-                      <option value="all" style="color: #aaaaaa"> - All Projects - </option>
-                </select>
-                <a href="#void" class="button edit" id="edit-project-button" onClick="showGeneralEditForm('project')" style="display:none;"><i class="fa fa-pencil" aria-hidden="true"></i></a><a href="#void" class="button" onClick="projectControls.showAddProjectForm()"><i class="fa fa-plus" aria-hidden="true"></i></a>
-              </div>
-            </form>
-          </div>
-        </div>
-
       <div class="clearfix"></div>
 
       <!-- TaskList / Tree View -->
@@ -123,62 +76,6 @@
           <div id="node-tree" class="node-tree"></div>
         </div>
 
-        <!-- Legacy task list (kept for backward compat, hidden) -->
-        <div id="task-list" style="display: none;">
-                <div id="tasklist-new-task-form">
-
-                  <form method="post" id="task-form" action="">
-                    <div class="glommed-field-div">
-                      <div id="autocomplete-container">
-                        <input type="text" class="button-end-field" id="new-task-input" name="new-task-input" placeholder="Add new task (use / for client/project)" autocomplete="off" />
-                        <div id="task-autocomplete"></div>
-                      </div><a href="#void" onClick="saveNewTask()" class="button field-end-button" id="save-new-task-button">Save</a>
-                    </div>
-                  </form>
-
-                </div>
-
-                <div class="task-list-item" id="task-list-item-template">
-                    <div class="task {{task.status}}" style="display:flex;" data-task-id="{{task.id}}" onDblClick="showGeneralEditForm('task','{{task.id}}')">
-                      <div style="width: 80%; flex: 1">
-                      {{checkCompleted}} {{task.truncateName}} {{starIcon}}
-                      <span class="task-meta">{{task.metaParentage}}{{task.metaEstimate}}{{task.metaPrettyTime}} <span class="fa-stack billability" style="font-size: 0.6em; display:{{billable_display}}; padding-left:5px;"><i class="fa fa-circle fa-2x fa-stack-2x"></i><i class="fa fa-usd fa-lg fa-stack-1x fa-inverse"></i></span> </span>
-                      </div>
-                      <div style="width: 20px; flex:0.05; font-size: 1.2em; margin-top: 2px;">
-                        <i onClick="startGeneralSession('{{task.id}}')" style="cursor:pointer; color:#77aa88;" class="fa fa-play-circle fa-lg"></i>
-                      </div>
-                    </div>
-
-                </div>
-                <div><ul class="c-rating"></ul></div>
-                <div id="no-data-found" style="display: none;">
-                  <div colspan="5" style="font-size: 1.5em; color: #aaa; text-align:center">No data to display</div>
-                </div>
-           </div>
-           <div id="taskList-options" style="display: none;">
-             <div style="float: left; min-width: 50px;">
-               <i class="fa fa-star" id="filter-starred" onClick="taskList.toggleStarFilter()" title="Show only starred tasks"></i>
-             </div>
-             <div style="float: left; min-width: 200px;">
-             Sort by: <a href="#void" onClick="taskList.sort('name')">name</a> | <a href="#void" onClick="taskList.sort('priority')">priority</a> | <a href="#void" onClick="taskList.sort('status')">status</a> | <a href="#void" onClick="taskList.sort('time')">time</a>  | <a href="#void" onClick="taskList.sort('sessionCount')">sessions</a>  | <a href="#void" onClick="taskList.sort('lastSessionTime')">last session</a>
-             </div>
-             <!-- select id="sort-by" onChange="taskList.sort(this.value);">
-              <option value="name" selected>Sort by: name</option>
-              <option value="priority" >Sort by: priority</option>
-              <option value="status" >Sort by: status</option>
-              <option value="time" >Sort by: time</option>
-             </select -->
-             <div style="float: left; min-width: 200px;">
-             <input type="checkbox" id="hide-completed" onChange="taskList.hideCompleted()" checked>&nbsp;<label for="hide-completed">Hide&nbsp;completed</label>
-             </div>
-             <div id="tag-filter-container" style="float: left; min-width: 200px;">
-               <i class="fa fa-tag"></i>
-               <select id="tag-filter-select" onchange="taskList.addTagFilter(this.value)">
-                 <option value="">+ Filter by tag</option>
-               </select>
-               <span id="active-tag-filters"></span>
-             </div>
-           </div>
 
          </div>
 
@@ -220,10 +117,7 @@
         <div id="today-new-task-form">
           <form method="post" id="today-task-form" action="">
             <div class="glommed-field-div">
-              <div id="today-autocomplete-container">
-                <input type="text" class="button-end-field" id="today-new-task-input" name="today-new-task-input" placeholder="Add new task (use /Client/Project/)" autocomplete="off" />
-                <div id="today-task-autocomplete"></div>
-              </div><a href="#void" onClick="saveNewTask(null, gebi('today-new-task-input').value, {starred: '1'}); gebi('today-new-task-input').value='';" class="button field-end-button" id="today-save-new-task-button">Save</a>
+              <input type="text" class="button-end-field" id="today-new-task-input" name="today-new-task-input" placeholder="Add new task" autocomplete="off" /><a href="#void" onClick="treeView.saveNewTaskFromToday(); gebi('today-new-task-input').value='';" class="button field-end-button" id="today-save-new-task-button">Save</a>
             </div>
           </form>
         </div>

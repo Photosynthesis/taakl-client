@@ -1,4 +1,4 @@
-var current_client, current_project, current_task, current_session;
+var current_session;
 
 var ttData;
 
@@ -39,15 +39,11 @@ var defaultSettings = {
 };
 
 analyze = {};
-taskList = {};
 treeView = {};
 settingsView = {};
 todayView = {};
-clientControls = {};
-projectControls = {};
-taskAutocomplete = {};
 
-var currentView = taskList;
+var currentView = treeView;
 
 var flatData = [];
 
@@ -101,13 +97,6 @@ function playEstimateAlarm() {
   oscillator.stop(audioCtx.currentTime + 1.0);
 }
 
-var lastTaskSaveTime;
-
-var current_client = {};
-var current_project = {};
-var current_task = {};
-
-
 var types = ['user','client','project','task','session'];
 
 var editFields = {
@@ -151,31 +140,6 @@ var editFields = {
       options :{"asc":"Ascending", "desc":"Descending"}
     }
   },
-  client : {
-    name : {
-      label : "Name",
-      type : "text"
-    },
-    id : {
-      label : "ID",
-      type : "text"
-    }
-  },
-  project : {
-    name : {
-      label : "Name",
-      type : "text"
-    },
-    id : {
-      label : "ID",
-      type : "text"
-    },
-    _client : {
-      label : "Client",
-      type : "select",
-      dynamicOptions : "clients"
-    }
-  },
   task : {
     name : {
       label : "Name",
@@ -215,11 +179,6 @@ var editFields = {
     estimate : {
       label : "Estimate (minutes)",
       type : "text"
-    },
-    _project : {
-      label : "Project",
-      type : "select",
-      dynamicOptions : "projects"
     }
   },
   session : {
@@ -246,474 +205,6 @@ function escapeHtml(text) {
   var div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
-}
-
-// Factory function to create autocomplete instances
-function createTaskAutocomplete(inputId, dropdownId) {
-  var ac = {};
-
-  ac.init = function() {
-    var input = gebi(inputId);
-    var dropdown = gebi(dropdownId);
-
-    if (!input || !dropdown) return;
-
-    ac.input = input;
-    ac.dropdown = dropdown;
-    ac.selectedIndex = -1;
-    ac.items = [];
-    ac.slashPosition = -1;
-    ac.selectedClient = null;
-
-    // Bind input events (using bind for jQuery 1.6.4 compatibility)
-    $(input).bind('input', function(e) {
-      ac.handleInput(e);
-    });
-
-    $(input).bind('keydown', function(e) {
-      ac.handleKeydown(e);
-    });
-
-    $(input).bind('blur', function(e) {
-      // Delay to allow click on dropdown items
-      setTimeout(function() {
-        ac.hide();
-      }, 200);
-    });
-
-    // Click on dropdown items (using delegate for jQuery 1.6.4 compatibility)
-    $(dropdown).delegate('.autocomplete-item', 'click', function() {
-      var index = $(this).data('index');
-      ac.selectItem(index);
-    });
-  };
-
-  // Handle input changes
-  ac.handleInput = function(e) {
-    var value = this.input.value;
-    var cursorPos = this.input.selectionStart;
-
-    // Find the last "/" before cursor that starts a path
-    var lastSlashPos = -1;
-    for (var i = cursorPos - 1; i >= 0; i--) {
-      if (value[i] === '/') {
-        lastSlashPos = i;
-        break;
-      }
-      // Stop searching if we hit whitespace before finding a slash
-      if (value[i] === ' ' && lastSlashPos === -1) {
-        break;
-      }
-    }
-
-    // Check if we're in an autocomplete context
-    if (lastSlashPos === -1) {
-      this.hide();
-      this.selectedClient = null;
-      return;
-    }
-
-    // Get the search text after the last slash
-    var searchStart = lastSlashPos + 1;
-
-    // Check if there's a completed client selection (find previous slash)
-    var prevSlashPos = -1;
-    for (var i = lastSlashPos - 1; i >= 0; i--) {
-      if (value[i] === '/') {
-        prevSlashPos = i;
-        break;
-      }
-      if (value[i] === ' ') {
-        break;
-      }
-    }
-
-    var searchText = value.substring(searchStart, cursorPos);
-    this.slashPosition = lastSlashPos;
-
-    // Determine context and get matches
-    if (prevSlashPos !== -1) {
-      // User has typed /Client/... - extract client name and search projects
-      var clientName = value.substring(prevSlashPos + 1, lastSlashPos);
-      this.selectedClient = this.findClientByName(clientName);
-      if (this.selectedClient) {
-        this.showProjectMatches(searchText, this.selectedClient);
-      } else {
-        this.hide();
-      }
-    } else if (this.selectedClient) {
-      // Client was selected via autocomplete, search projects from that client
-      this.showProjectMatches(searchText, this.selectedClient);
-    } else {
-      // No client context - show both clients and projects
-      this.showAllMatches(searchText);
-    }
-  };
-
-  // Find client by name (case insensitive)
-  ac.findClientByName = function(name) {
-    var nameLower = name.toLowerCase();
-    for (var clientId in ttData.clients) {
-      if (ttData.clients[clientId].name.toLowerCase() === nameLower) {
-        return ttData.clients[clientId];
-      }
-    }
-    return null;
-  };
-
-  // Find project by name within client (case insensitive)
-  ac.findProjectByName = function(name, client) {
-    var nameLower = name.toLowerCase();
-    if (!client || !client.projects) return null;
-
-    for (var projectId in client.projects) {
-      if (client.projects[projectId].name.toLowerCase() === nameLower) {
-        return client.projects[projectId];
-      }
-    }
-    return null;
-  };
-
-  // Show all matches (clients and projects)
-  ac.showAllMatches = function(searchText) {
-    var matches = [];
-    var searchLower = searchText.toLowerCase();
-    var selectedClientId = (current_client && typeof current_client === 'object' && current_client.id) ? current_client.id : null;
-
-    // If a client is selected in dropdown, only show that client's projects
-    if (selectedClientId) {
-      var client = ttData.clients[selectedClientId];
-      if (client && client.projects) {
-        for (var projectId in client.projects) {
-          var project = client.projects[projectId];
-          if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
-            matches.push({
-              type: 'project',
-              id: projectId,
-              name: project.name,
-              clientId: selectedClientId,
-              clientName: client.name
-            });
-          }
-        }
-      }
-    } else {
-      // No client selected - show both clients and projects
-      for (var clientId in ttData.clients) {
-        var client = ttData.clients[clientId];
-
-        // Match client names
-        if (client.name.toLowerCase().indexOf(searchLower) !== -1) {
-          matches.push({
-            type: 'client',
-            id: clientId,
-            name: client.name
-          });
-        }
-
-        // Match project names
-        if (client.projects) {
-          for (var projectId in client.projects) {
-            var project = client.projects[projectId];
-            if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
-              matches.push({
-                type: 'project',
-                id: projectId,
-                name: project.name,
-                clientId: clientId,
-                clientName: client.name
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Sort: clients first, then projects, alphabetically within each group
-    matches.sort(function(a, b) {
-      if (a.type !== b.type) {
-        return a.type === 'client' ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-
-    this.renderDropdown(matches);
-  };
-
-  // Show project matches (within specific client)
-  ac.showProjectMatches = function(searchText, client) {
-    var matches = [];
-    var searchLower = searchText.toLowerCase();
-
-    if (client && client.projects) {
-      for (var projectId in client.projects) {
-        var project = client.projects[projectId];
-        if (project.name.toLowerCase().indexOf(searchLower) !== -1) {
-          matches.push({
-            type: 'project',
-            id: projectId,
-            name: project.name,
-            clientId: client.id,
-            clientName: client.name
-          });
-        }
-      }
-    }
-
-    matches.sort(function(a, b) {
-      return a.name.localeCompare(b.name);
-    });
-
-    this.renderDropdown(matches);
-  };
-
-  // Render dropdown
-  ac.renderDropdown = function(matches) {
-    this.items = matches;
-    this.selectedIndex = matches.length > 0 ? 0 : -1;
-
-    if (matches.length === 0) {
-      this.dropdown.innerHTML = '<div class="autocomplete-no-matches">No matches found</div>';
-      this.dropdown.style.display = 'block';
-      return;
-    }
-
-    var html = '';
-    for (var i = 0; i < matches.length; i++) {
-      var item = matches[i];
-      var selectedClass = (i === 0) ? ' selected' : '';
-      var typeClass = item.type + '-item';
-
-      html += '<div class="autocomplete-item ' + typeClass + selectedClass + '" data-index="' + i + '">';
-      html += '<span class="autocomplete-item-name">' + escapeHtml(item.name) + '</span>';
-
-      if (item.type === 'project' && item.clientName) {
-        html += '<span class="autocomplete-item-meta">(' + escapeHtml(item.clientName) + ')</span>';
-      }
-
-      html += '</div>';
-    }
-
-    this.dropdown.innerHTML = html;
-    this.dropdown.style.display = 'block';
-  };
-
-  // Handle keyboard navigation
-  ac.handleKeydown = function(e) {
-    if (this.dropdown.style.display !== 'block' || this.items.length === 0) {
-      return;
-    }
-
-    switch (e.keyCode) {
-      case 40: // Down arrow
-        e.preventDefault();
-        this.selectedIndex = Math.min(this.selectedIndex + 1, this.items.length - 1);
-        this.updateSelection();
-        break;
-
-      case 38: // Up arrow
-        e.preventDefault();
-        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-        this.updateSelection();
-        break;
-
-      case 13: // Enter
-        if (this.selectedIndex >= 0) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.selectItem(this.selectedIndex);
-          return false;
-        }
-        break;
-
-      case 27: // Escape
-        this.hide();
-        break;
-
-      case 9: // Tab
-        if (this.selectedIndex >= 0) {
-          e.preventDefault();
-          this.selectItem(this.selectedIndex);
-        }
-        break;
-    }
-  };
-
-  // Update selection highlight
-  ac.updateSelection = function() {
-    var items = this.dropdown.querySelectorAll('.autocomplete-item');
-    for (var i = 0; i < items.length; i++) {
-      if (i === this.selectedIndex) {
-        items[i].classList.add('selected');
-        items[i].scrollIntoView({ block: 'nearest' });
-      } else {
-        items[i].classList.remove('selected');
-      }
-    }
-  };
-
-  // Select item (insert into input)
-  ac.selectItem = function(index) {
-    var item = this.items[index];
-    if (!item) return;
-
-    var value = this.input.value;
-    var cursorPos = this.input.selectionStart;
-
-    // Find the start of the autocomplete region (first slash in current sequence)
-    var regionStart = this.slashPosition;
-    for (var i = this.slashPosition - 1; i >= 0; i--) {
-      if (value[i] === '/') {
-        // Check if there's already a client part
-        if (this.selectedClient) {
-          // Keep the /ClientName/ part, only replace from current slash
-          break;
-        }
-        regionStart = i;
-      } else if (value[i] === ' ') {
-        break;
-      }
-    }
-
-    // Determine what to insert
-    var insertText = '';
-    var newCursorPos;
-
-    if (item.type === 'client') {
-      // Insert client name with trailing slash for project selection
-      insertText = '/' + item.name + '/';
-      this.selectedClient = ttData.clients[item.id];
-      newCursorPos = regionStart + insertText.length;
-    } else {
-      // Project selected
-      if (this.selectedClient) {
-        // Already have client, just insert project name with trailing slash
-        insertText = item.name + '/';
-        // Replace from after the client slash
-        regionStart = this.slashPosition + 1;
-      } else if (current_client && typeof current_client === 'object' && current_client.id) {
-        // Client dropdown is set, just use project name
-        insertText = '/' + item.name + '/';
-      } else {
-        // No client context, insert full path
-        insertText = '/' + item.clientName + '/' + item.name + '/';
-      }
-      newCursorPos = regionStart + insertText.length;
-      this.selectedClient = null;
-    }
-
-    // Construct new value
-    var before = value.substring(0, regionStart);
-    var after = value.substring(cursorPos);
-
-    this.input.value = before + insertText + after;
-    this.input.selectionStart = this.input.selectionEnd = newCursorPos;
-
-    this.hide();
-    this.input.focus();
-
-    // If we just selected a client, trigger input to show projects
-    if (item.type === 'client') {
-      $(this.input).trigger('input');
-    }
-  };
-
-  // Hide dropdown
-  ac.hide = function() {
-    this.dropdown.style.display = 'none';
-    this.items = [];
-    this.selectedIndex = -1;
-  };
-
-  return ac;
-}
-
-// Create autocomplete instances
-var taskAutocomplete = createTaskAutocomplete('new-task-input', 'task-autocomplete');
-var todayAutocomplete = createTaskAutocomplete('today-new-task-input', 'today-task-autocomplete');
-
-/**
- * Parse client and project from task input
- * Supports formats:
- *   /ClientName/ProjectName/task name
- *   task name /ClientName/ProjectName/
- *   /ProjectName/task name (when client is selected)
- *   task name /ProjectName/ (when client is selected)
- *
- * Returns: { name: cleanedTaskName, client: clientObj, project: projectObj }
- */
-function parseClientProjectFromInput(input) {
-  // First try to match /ClientName/ProjectName/ pattern (two-part path)
-  var twoPartPattern = /\/([^\/]+)\/([^\/]+)\/?/;
-  var twoPartMatch = input.match(twoPartPattern);
-
-  if (twoPartMatch) {
-    var clientName = twoPartMatch[1];
-    var projectName = twoPartMatch[2];
-
-    // Find client (case insensitive)
-    var foundClient = null;
-    for (var clientId in ttData.clients) {
-      if (ttData.clients[clientId].name.toLowerCase() === clientName.toLowerCase()) {
-        foundClient = ttData.clients[clientId];
-        break;
-      }
-    }
-
-    if (foundClient) {
-      // Find project within client (case insensitive)
-      var foundProject = null;
-      if (foundClient.projects) {
-        for (var projectId in foundClient.projects) {
-          if (foundClient.projects[projectId].name.toLowerCase() === projectName.toLowerCase()) {
-            foundProject = foundClient.projects[projectId];
-            break;
-          }
-        }
-      }
-
-      if (foundProject) {
-        // Remove the path from task name
-        var cleanName = input.replace(twoPartMatch[0], '').trim();
-        return {
-          name: cleanName,
-          client: foundClient,
-          project: foundProject
-        };
-      }
-    }
-  }
-
-  // Try single-part pattern /ProjectName/ when a client is already selected
-  var onePartPattern = /\/([^\/]+)\/?/;
-  var onePartMatch = input.match(onePartPattern);
-
-  if (onePartMatch && current_client && typeof current_client === 'object' && current_client.id) {
-    var projectName = onePartMatch[1];
-
-    // Find project within current client (case insensitive)
-    var foundProject = null;
-    if (current_client.projects) {
-      for (var projectId in current_client.projects) {
-        if (current_client.projects[projectId].name.toLowerCase() === projectName.toLowerCase()) {
-          foundProject = current_client.projects[projectId];
-          break;
-        }
-      }
-    }
-
-    if (foundProject) {
-      // Remove the path from task name
-      var cleanName = input.replace(onePartMatch[0], '').trim();
-      return {
-        name: cleanName,
-        client: current_client,
-        project: foundProject
-      };
-    }
-  }
-
-  return { name: input, client: null, project: null };
 }
 
 // Load Node HTTP module, if available
@@ -786,50 +277,17 @@ function ttInit(){
          ttSave();
       }
 
-      // Check if we're using the new node structure (v2)
-      if (isNodeStructure()) {
-        // v2 node-based structure
-        dbg("Using v2 node-based data structure");
-
-        // Restore current node from localStorage
-        if (localStorage.ttCurrentNodeId) {
-          current_node = getNode(localStorage.ttCurrentNodeId);
-          if (current_node) {
-            current_node_path = getNodePath(current_node.id);
-          }
+      // Restore current node from localStorage
+      if (localStorage.ttCurrentNodeId) {
+        current_node = getNode(localStorage.ttCurrentNodeId);
+        if (current_node) {
+          current_node_path = getNodePath(current_node.id);
         }
+      }
 
-        // Check for active session
-        if (localStorage.ttSessionId && current_node && current_node.sessions) {
-          current_session = current_node.sessions[localStorage.ttSessionId];
-        }
-
-      } else {
-        // Legacy v1 structure - still supported but tree view will show empty
-        dbg("Using legacy v1 data structure (clients/projects/tasks)");
-
-        if(localStorage.ttClientId && typeof ttData.clients[localStorage.ttClientId] == "object"){
-          dbg("Loading current client",ttData.clients[localStorage.ttClientId]);
-
-          current_client = ttData.clients[localStorage.ttClientId];
-
-          if(localStorage.ttProjectId && typeof current_client.projects[localStorage.ttProjectId] == "object"){
-            dbg("Loading current project",current_client.projects[localStorage.ttProjectId]);
-
-            current_project = current_client.projects[localStorage.ttProjectId];
-
-            if(localStorage.ttTaskId && typeof current_project.tasks[localStorage.ttTaskId] == "object"){
-
-              current_task = current_project.tasks[localStorage.ttTaskId];
-
-              if(localStorage.ttSessionId){
-                current_session = current_task.sessions[localStorage.ttSessionId];
-              }
-            }
-          }else{
-            dbg("No data found for localStorage.ttProjectId",localStorage.ttProjectId);
-          }
-        }
+      // Check for active session
+      if (localStorage.ttSessionId && current_node && current_node.sessions) {
+        current_session = current_node.sessions[localStorage.ttSessionId];
       }
     }
 
@@ -845,28 +303,8 @@ function ttInit(){
            return false;
         }
 
-        if(document.activeElement.id == 'new-task-input'){
-           // Check if autocomplete is handling this Enter key
-           var autocompleteDropdown = gebi('task-autocomplete');
-           if (autocompleteDropdown && autocompleteDropdown.style.display === 'block'
-               && taskAutocomplete.selectedIndex >= 0) {
-             // Let autocomplete handle it - don't save task
-             return false;
-           }
-           saveNewTask();
-        }else if(document.activeElement.id == 'today-new-task-input'){
-           // Check if autocomplete is handling this Enter key
-           var todayAutocompleteDropdown = gebi('today-task-autocomplete');
-           if (todayAutocompleteDropdown && todayAutocompleteDropdown.style.display === 'block'
-               && todayAutocomplete.selectedIndex >= 0) {
-             // Let autocomplete handle it - don't save task
-             return false;
-           }
+        if(document.activeElement.id == 'today-new-task-input'){
            treeView.saveNewTaskFromToday();
-        }else if(document.activeElement.id == 'add-project-input'){
-           saveProject();
-        }else if(document.activeElement.id == 'add-client-input'){
-           saveClient();
         }
 
         return false;
@@ -874,24 +312,7 @@ function ttInit(){
 
    });
 
-
-   // Initialize the appropriate view based on data structure
-   if (isNodeStructure()) {
-     // v2: Use tree view
-     setView('taskList');
-   } else {
-     // v1: Legacy client/project controls
-     clientControls.show();
-
-     if(typeof current_client == "object"){
-       projectControls.show();
-     }
-
-     if(getMemberCount(ttData.clients) > 0){
-        setView('taskList');
-     }
-   }
-
+   setView('taskList');
 
    if(current_session){
       continueSession();
@@ -910,11 +331,6 @@ function ttInit(){
 
    if(getSetting("auto_synch") == "yes" && isLoggedIn()){
      synchToServer();
-   }
-
-   // Initialize task autocomplete (for legacy view)
-   if (!isNodeStructure()) {
-     taskAutocomplete.init();
    }
 
    // Prompt login on first visit (no existing data and not logged in)
@@ -937,490 +353,13 @@ function ttInit(){
 
 }
 
-/* ################################## INPUT HANDLING FUNCTIONS ################################## */
-/** These functions should only be used for handling input from the DOM, calling data update functions
- *  as needed, and then emitting a (pseudo) event to notify the view updaters that something's happened.
- *  For now they are called from the DOM directly, which is considered so not cool, although it works fine.
- *  In some cases they still do other things, which should get migrated to appropriate view functions
-
-
-/* ########################### CLIENT CONTROL ######################### */
-
-function saveClient(){
-
-  // Ensure clients object exists (may be missing after sync from empty server data)
-  if(!ttData.clients){
-    ttData.clients = {};
-  }
-
-  new_client = {
-      'id' : newId(),
-      'name' : gebi('add-client-input').value,
-      'projects' : {}
-  };
-
-  ttData.clients[new_client.id] = new_client;
-  ttSave();
-
-  synchQueue.add("insert", "client", new_client.id);
-
-  emitEvent('client','add');
-
-  current_client = ttData.clients[new_client.id];
-
-  emitEvent('client','set',new_client.id);
-
-  // All this stuff goes to view functions or dispatcher...
-  //updateSelectOptionsFromData('client');
-  //cancelAddClient();
-
-  //setClient(new_client.id);
-
-  setFeedback('Client saved','success');
-
-}
-
-
-function setClient(clientId){
-
-  client_select = gebi('client-select');
-
-  if(clientId){
-    client_select.value = clientId;
-  }else{
-    clientId = client_select.value;
-  }
-
-  if(clientId == "all"){
-
-    current_client = "all";
-
-    //gebi('project-controls').style.display = "none"; // Move
-
-  }else{
-
-
-    //gebi('project-controls').style.display = "block";  // Move
-
-    current_client = ttData.clients[client_select.value];
-
-
-    //$("#edit-project-button").hide();  // Move
-
-    // Count how many projects this client has
-    /*
-    project_count = 0;
-
-    if(typeof current_client.projects == "object"){
-      for(project_id in current_client.projects){
-         project_count += 1;
-      }
-    }
-
-    if(project_count > 0){
-      updateSelectOptionsFromData('project');
-      cancelAddProject();
-    }else{
-      addProjectForm();
-      updateSelectOptionsFromData('project');
-    }
-
-    $('#project-controls').show();
-    */
-  }
-
-  /*
-
-  if(currentView.setClient){
-    currentView.setClient(clientId);
-  }
-  */
-
-  current_project = 'all';
-
-  dbg("Sending client to emitEvent",clientId);
-
-  emitEvent("client","set",clientId);
-  emitEvent("project","set","all");
-
-  ttSaveCurrent();
-
-}
-
-
-
-
-/* ######################### TRACK PROJECT CONTROLS ######################### */
-
-/*
-function addProjectForm(){
-   document.getElementById('add-project-form').style.display = "block";
-   document.getElementById('select-project-form').style.display = "none";
-}
-
-function cancelAddProject(){
-  document.getElementById('add-project-input').value = '';
-  document.getElementById('add-project-form').style.display = "none";
-  document.getElementById('select-project-form').style.display = "block";
-}
-
-*/
-
-function saveProject(){
-
-  new_project = {
-      'id' : newId(),
-      'name' : document.getElementById('add-project-input').value,
-      'tasks' : {}
-  };
-
-  if(typeof ttData.clients[current_client.id].projects != "object"){
-    ttData.clients[current_client.id].projects = {};
-  }
-
-  ttData.clients[current_client.id].projects[new_project.id] = new_project;
-  ttSave();
-
-  synchQueue.add("insert", "project", new_project.id, current_client.id);
-
-  emitEvent("project","add",new_project.id);
-  /*
-  updateSelectOptionsFromData('project');
-  cancelAddProject();
-  */
-  setProject(new_project.id);
-  setFeedback('Project saved','success');
-}
-
-
-
-function setProject(id){
-
-  project_select = document.getElementById('project-select');
-
-  if(id){
-    project_select.value = id;
-  }else{
-    id = project_select.value;
-  }
-
-  current_task = '';
-
-
-  dbg("P ID in setP()",id);
-  dbg("P ID in setP()",id);
-
-
-  if(id != 'all' && id != ''){
-
-    $("#edit-project-button").show();
-
-    // This could be replaced with a call to getItemById(), but that would be slower, so we'll leave it like this for now..
-
-    current_project = ttData.clients[current_client.id].projects[id];
-
-  }else{
-    current_project = '';
-  }
-
-  dbg("Current P in setP()",current_project);
-
-
-  emitEvent('project','set',id);
-
-  ttSaveCurrent();
-}
-
-
-
-
-/* ########################### TRACK TASK CONTROLS ########################## */
-
-
-
-function setTask(task_id){
-  if(task_id){
-    if(typeof current_project == "object" && current_project.tasks[task_id]){
-      current_task = current_project.tasks[task_id];
-      ttSaveCurrent();
-    }
-  }
-}
-
-
-function saveNewTask(projectId,task_name,options){
-
-    var taskSaveTimeObj = new Date();
-    var taskSaveTime = (taskSaveTimeObj.getTime());
-
-    if((taskSaveTime - lastTaskSaveTime) < 500){
-
-      dbg("Task was saved within 500 ms. Starting task:",lastTaskSaveId);
-      dbg("lastTaskSaveTime",lastTaskSaveTime);
-      dbg("taskSaveTime",taskSaveTime);
-
-      startGeneralSession(lastTaskSaveId);
-      return;
-    }
-
-
-
-  if(projectId){
-    var branch = getBranchById("project",projectId);
-    current_client = branch.client;
-    current_project = branch.project;
-  }
-
-  if(!task_name){
-    task_name = document.getElementById('new-task-input').value;
-    document.getElementById('new-task-input').value = '';
-  }
-
-  // Parse estimate from task name (e.g., "Fix bug (30 m)" or "Build feature (2 h)")
-  var parsed = parseEstimateFromInput(task_name);
-  task_name = parsed.name;
-
-  // Parse client/project from task name if present (e.g., "/Client/Project/task name")
-  var parsedPath = parseClientProjectFromInput(task_name);
-  task_name = parsedPath.name;
-
-  // If a client/project was parsed, use it instead of current selection
-  if (parsedPath.project) {
-    current_client = parsedPath.client;
-    current_project = parsedPath.project;
-  } else if (!current_project || current_project === 'all' || typeof current_project !== 'object' || !current_project.id) {
-    // No project selected or parsed - cannot save
-    setFeedback('Please select a project or use /Client/Project/ syntax', 'error');
-    return;
-  }
-
-  // Validate task name is not empty
-  if (!task_name || task_name.trim() === '') {
-    setFeedback('Please enter a task name', 'error');
-    return;
-  }
-
-  var new_task = {
-    'id' : newId(task_name,'task'),
-    'name' : task_name,
-    'status' : 'new',
-    'sessions' : {},
-    'estimate' : parsed.estimate
-  };
-
-  // Apply any additional options passed in (e.g., starred)
-  if (options && typeof options === 'object') {
-    for (var key in options) {
-      if (options.hasOwnProperty(key)) {
-        new_task[key] = options[key];
-      }
-    }
-  }
-
-  if(gebi("billable-input")){
-    if(gebi("billable-input").checked == true){
-      new_task.billable = "1";
-    }else{
-      new_task.billable = "0";
-    }
-  }else{
-      new_task.billable = "1";
-  }
-
-  current_task = new_task;
-
-  if(typeof current_project.tasks != "object"){
-    current_project.tasks = {};
-  }
-
-  current_project.tasks[new_task.id] = new_task;
-
-  ttData.clients[current_client.id].projects[current_project.id].tasks = current_project.tasks;
-
-  ttSave();
-
-  setTask(new_task.id);
-
-  lastTaskSaveTime = taskSaveTime;
-  lastTaskSaveId = new_task.id;
-
-
-  synchQueue.add("insert", "task", new_task.id, current_project.id);
-
-  emitEvent("task","added");
-
-  return new_task.id;
-
-}
-
-/* Update task from "completed" checkbox */
-function setTaskComplete(task_id,element){
-
-  task = getItemById("task",task_id);
-
-  if(task.status == "completed"){
-    task.status = "inProcess";
-  }else{
-    task.status = "completed";
-  }
-
-  updateItemById("task",task_id,task);
-
-  emitEvent("task","updated");
-
-  ttSave();
-
-}
-
-/* Toggle task starred status */
-function toggleTaskStar(task_id){
-  var task = getItemById("task", task_id);
-
-  if(task.starred == "1"){
-    task.starred = "0";
-  }else{
-    task.starred = "1";
-  }
-
-  updateItemById("task", task_id, task);
-  emitEvent("task", "updated");
-  ttSave();
-}
-
-
 /* ######################### TRACK SESSION CONTROL ########################## */
 
-
-function startSession(){
-
-  startDate = moment();
-
-  // Reset estimate alert flags for new session
-  estimateAlert90Triggered = false;
-  estimateAlert100Triggered = false;
-
-  current_session = {
-    'id' : newId(),
-    'start_time' : startDate.format("YYYY-MM-DD HH:mm:ss"),
-  };
-
-  updateDataObject('session',current_session);
-  counterId = setInterval(incrementCurrentDuration, 1000);
-  showInSession();
-  ttSave();
-  ttSaveCurrent();
-}
-
-/* Wrapper to start session by task ID, without current client or project set */
-
-function startGeneralSession(taskId) {
-
-   var branch = getBranchById("task",taskId);
-   current_client = branch.client;
-   current_project = branch.project;
-   current_task = branch.task;
-
-   startSession();
-
-}
 
 function continueSession(){
   startDate = moment(current_session.start_time);
   counterId = setInterval(incrementCurrentDuration, 1000);
-
-  // Use appropriate UI based on data structure
-  if (isNodeStructure() && current_node) {
-    showNodeInSession();
-  } else {
-    showInSession();
-  }
-}
-
-
-
-
-
-function endSession(markComplete){
-
-  clearInterval(counterId);
-  window.removeEventListener('resize', fitDurationText);
-
-  current_session.end_time = moment().format("YYYY-MM-DD HH:mm:ss");
-
-  current_session.notes = $("#session-notes-input").val();
-
-  if(markComplete){
-    current_task.status = "completed";
-    task_complete_feedback = " <b>Task complete!</b>";
-    feedback_class = "success";
-  }else{
-    current_task.status = "inProcess";
-    task_complete_feedback = "";
-    feedback_class = "notice";
-  }
-
-  current_task.time += timeDiffSecsFromString(current_session.start_time,current_session.end_time);
-
-  updateDataObject('task',current_task);
-  updateDataObject('session',current_session);
-  pastSessionId = current_session.id;
-  current_session = '';
-  delete localStorage.ttSessionId;
-  ttSave();
-  ttSaveCurrent();
-  document.getElementById('active-session').style.display = 'none';
-  document.title = "Timetracker";
-  edit_button = '<form style="display:inline"><a class="button" onClick="showGeneralEditForm(\'session\',\''+pastSessionId+'\')">Edit session</a></form>';
-  setFeedback("Session Ended. Duration was "+currentDuration+task_complete_feedback+edit_button,feedback_class);
-
-  taskList.filter(); // Move
-  taskList.update(); // Move
-
-
-  synchQueue.add("insert", "session", pastSessionId, current_task.id);
-
-  emitEvent('session','ended');
-
-  dbg("Auto synch setting",getSetting("auto_synch"));
-
-  if(getSetting("auto_synch") == "yes" && isLoggedIn()){
-    synchToServer();
-  }
-
-}
-
-function showInSession(){
-
-  // Build estimate display if task has an estimate
-  var estimateHtml = '';
-  if(current_task.estimate && current_task.estimate > 0){
-    var estimateDisplay = prettyTime(current_task.estimate);
-    estimateHtml = '<div id="session-estimate">' +
-      '<span class="estimate-label">EST</span>' +
-      '<span class="estimate-value">' + estimateDisplay + '</span>' +
-      '</div>';
-  }
-
-  var html = '<div class="centered-box">' +
-    '<div id="current-info">' +
-      '<b>' + current_client.name + '</b> > <b>' + current_project.name + '</b> > <b>' + current_task.name + '</b>' +
-    '</div>' +
-    '<div id="current_duration"><span style="color:#dddddd">00:00:00</span></div>' +
-    estimateHtml +
-    '<div id="session-buttons">' +
-      '<a class="button session-end-btn" onClick="endSession(false)">End&nbsp;Session</a>' +
-      '<a class="button session-complete-btn" onClick="endSession(true)">Task&nbsp;Complete</a>' +
-    '</div>' +
-    '<input type="text" id="session-notes-input" placeholder="Add notes..." />' +
-  '</div>';
-
-  gebi('active-session').innerHTML = html;
-  gebi('active-session').style.display = 'block';
-
-  // Fit duration text to container and set up resize listener
-  setTimeout(fitDurationText, 10); // Small delay to ensure DOM is rendered
-  window.addEventListener('resize', fitDurationText);
-
+  showNodeInSession();
 }
 
 
@@ -1470,23 +409,23 @@ function incrementCurrentDuration() {
     document.title = currentDuration + ' - Timetracker';
 
     // Check estimate thresholds if task has an estimate
-    if(current_task && current_task.estimate && current_task.estimate > 0){
-      var existingTime = current_task.time || 0;
+    if(current_node && current_node.estimate && current_node.estimate > 0){
+      var existingTime = current_node.time || 0;
       var totalTimeSpent = existingTime + currentDurationSeconds;
-      var percentUsed = (totalTimeSpent / current_task.estimate) * 100;
+      var percentUsed = (totalTimeSpent / current_node.estimate) * 100;
 
       // 90% warning ding
       if(!estimateAlert90Triggered && percentUsed >= 90 && percentUsed < 100){
         playEstimateDing();
         estimateAlert90Triggered = true;
-        desktopNotify('90% of estimated time used for: ' + current_task.name, 'Time Estimate Warning');
+        desktopNotify('90% of estimated time used for: ' + current_node.name, 'Time Estimate Warning');
       }
 
       // 100% alarm
       if(!estimateAlert100Triggered && percentUsed >= 100){
         playEstimateAlarm();
         estimateAlert100Triggered = true;
-        desktopNotify('Estimated time exceeded for: ' + current_task.name, 'Time Estimate Exceeded');
+        desktopNotify('Estimated time exceeded for: ' + current_node.name, 'Time Estimate Exceeded');
       }
     }
 
@@ -1530,142 +469,6 @@ function desktopNotify(message,title,icon) {
       icon: icon
   };
   new Notification(title,options);
-}
-
-
-/* ################### MOVE ITEMS BETWEEN PARENTS ################### */
-
-/**
- * Build dynamic options for parent selector dropdowns
- * @param {string} optionType - "clients" or "projects"
- * @returns {object} Options object with id:name pairs
- */
-function buildDynamicOptions(optionType) {
-  var options = {};
-
-  if(optionType === "clients") {
-    for(var clientId in ttData.clients) {
-      options[clientId] = ttData.clients[clientId].name;
-    }
-  }
-  else if(optionType === "projects") {
-    // All projects across all clients
-    for(var clientId in ttData.clients) {
-      var client = ttData.clients[clientId];
-      if(client.projects) {
-        for(var projectId in client.projects) {
-          // Format: "Client Name > Project Name"
-          options[projectId] = client.name + " > " + client.projects[projectId].name;
-        }
-      }
-    }
-  }
-
-  return options;
-}
-
-/**
- * Move a project from one client to another
- * @param {string} projectId - The project to move
- * @param {string} newClientId - The destination client
- * @returns {boolean} Success status
- */
-function moveProjectToClient(projectId, newClientId) {
-  var branch = getBranchById("project", projectId);
-  if(!branch.project) {
-    console.error("Project not found:", projectId);
-    return false;
-  }
-
-  var oldClientId = branch.client.id;
-
-  // Don't move if same client
-  if(oldClientId === newClientId) {
-    return false;
-  }
-
-  // Validate destination client exists
-  if(!ttData.clients[newClientId]) {
-    console.error("Destination client not found:", newClientId);
-    return false;
-  }
-
-  // Get the project data
-  var projectData = branch.project;
-
-  // Remove from old client
-  delete ttData.clients[oldClientId].projects[projectId];
-
-  // Ensure new client has projects object
-  if(!ttData.clients[newClientId].projects) {
-    ttData.clients[newClientId].projects = {};
-  }
-
-  // Add to new client
-  ttData.clients[newClientId].projects[projectId] = projectData;
-
-  // Update current_project if it was the moved project
-  if(current_project && current_project.id === projectId) {
-    current_project = ttData.clients[newClientId].projects[projectId];
-    current_client = ttData.clients[newClientId];
-  }
-
-  console.log("Moved project", projectId, "from client", oldClientId, "to", newClientId);
-  return true;
-}
-
-/**
- * Move a task from one project to another
- * @param {string} taskId - The task to move
- * @param {string} newProjectId - The destination project
- * @returns {boolean} Success status
- */
-function moveTaskToProject(taskId, newProjectId) {
-  var taskBranch = getBranchById("task", taskId);
-  if(!taskBranch.task) {
-    console.error("Task not found:", taskId);
-    return false;
-  }
-
-  var oldProjectId = taskBranch.project.id;
-  var oldClientId = taskBranch.client.id;
-
-  // Don't move if same project
-  if(oldProjectId === newProjectId) {
-    return false;
-  }
-
-  // Find the new project's client
-  var newProjectBranch = getBranchById("project", newProjectId);
-  if(!newProjectBranch.project) {
-    console.error("Destination project not found:", newProjectId);
-    return false;
-  }
-  var newClientId = newProjectBranch.client.id;
-
-  // Get the task data
-  var taskData = taskBranch.task;
-
-  // Remove from old project
-  delete ttData.clients[oldClientId].projects[oldProjectId].tasks[taskId];
-
-  // Ensure new project has tasks object
-  if(!ttData.clients[newClientId].projects[newProjectId].tasks) {
-    ttData.clients[newClientId].projects[newProjectId].tasks = {};
-  }
-
-  // Add to new project
-  ttData.clients[newClientId].projects[newProjectId].tasks[taskId] = taskData;
-
-  // Update current references if the moved task was selected
-  if(current_task && current_task.id === taskId) {
-    current_task = ttData.clients[newClientId].projects[newProjectId].tasks[taskId];
-    current_project = ttData.clients[newClientId].projects[newProjectId];
-    current_client = ttData.clients[newClientId];
-  }
-
-  console.log("Moved task", taskId, "from project", oldProjectId, "to", newProjectId);
-  return true;
 }
 
 
@@ -1876,10 +679,8 @@ function isLoggedIn() {
 function deleteLocalStorage(){
   if(confirm("Are you sure you would like to delete all your local time and task data?")){
     delete localStorage.ttData;
-    delete localStorage.ttClientId;
-    delete localStorage.ttProjectId;
-    delete localStorage.ttTaskId;
     delete localStorage.ttSessionId;
+    delete localStorage.ttCurrentNodeId;
     setFeedback('LocalStorage deleted. Refresh to see changes.');
   }
 }
@@ -1951,33 +752,13 @@ function saveGeneralEditForm(type,id){
 
   if(type == 'settings'){
     var item = ttData.settings;
+  }else if(type == 'session'){
+    var item = getSessionById(id);
   }else{
-    var item = getItemById(type,id)
-  }
-
-  // Track parent changes for move operations
-  var newClientId = null;
-  var newProjectId = null;
-
-  if(type === "project") {
-    var clientInput = document.getElementById("project-_client-edit-input");
-    if(clientInput) {
-      newClientId = clientInput.value;
-    }
-  }
-
-  if(type === "task") {
-    var projectInput = document.getElementById("task-_project-edit-input");
-    if(projectInput) {
-      newProjectId = projectInput.value;
-    }
+    return; // Only settings and sessions use this form in v2
   }
 
   for (key in editFields[type]){
-    // Skip parent selector fields (handled separately via move functions)
-    if(key === "_client" || key === "_project") {
-      continue;
-    }
     if(document.getElementById(type+"-"+key+"-edit-input")){
       item[key] = document.getElementById(type+"-"+key+"-edit-input").value;
     }else{
@@ -1985,74 +766,21 @@ function saveGeneralEditForm(type,id){
     }
   }
 
-  // Convert estimate from minutes to seconds for storage
-  if(type == "task" && item.estimate){
-    item.estimate = parseFloat(item.estimate) * 60;
-  }
-
-  /* This is excessively lame, and is only here because of issues with Vue.js... */
-  if(type == "task"){
-    item.displayStatus = editFields.task.status.options[item.status];
-  }
-
-  // Handle parent changes (move operations)
-  var moved = false;
-  var feedbackMsg = 'Item updated';
-
-  if(type === "project" && newClientId) {
-    moved = moveProjectToClient(id, newClientId);
-    if(moved) {
-      feedbackMsg = 'Project moved to new client';
-    }
-  }
-
-  if(type === "task" && newProjectId) {
-    moved = moveTaskToProject(id, newProjectId);
-    if(moved) {
-      feedbackMsg = 'Task moved to new project';
-    }
-  }
-
-  // Update item properties
+  // Update session in node structure
   if(type == "session"){
-    // For sessions in node structure: find and update directly
-    var sessionUpdated = false;
-    if(ttData.nodes){
-      for(var nodeId in ttData.nodes){
-        if(ttData.nodes[nodeId].sessions && ttData.nodes[nodeId].sessions[id]){
-          // Update the session in the node (explicit reference to ttData.nodes)
-          ttData.nodes[nodeId].sessions[id] = item;
-          // Clear any cached time value on the node
-          if(ttData.nodes[nodeId].time !== undefined){
-            delete ttData.nodes[nodeId].time;
-          }
-          sessionUpdated = true;
-          break;
+    for(var nodeId in ttData.nodes){
+      if(ttData.nodes[nodeId].sessions && ttData.nodes[nodeId].sessions[id]){
+        ttData.nodes[nodeId].sessions[id] = item;
+        if(ttData.nodes[nodeId].time !== undefined){
+          delete ttData.nodes[nodeId].time;
         }
+        break;
       }
     }
-
-    // Fallback to old structure if not found in nodes
-    if(!sessionUpdated){
-      updateItemById(type,id,item);
-      var branch = getBranchById(type,id);
-      if(branch.task){
-        delete branch.task.time;
-        updateItemById("task",branch.task.id,branch.task);
-      }
-    }
-  } else {
-    // For non-session types, use the standard update
-    updateItemById(type,id,item);
-  }
-
-
-  if(type != "session" && type != "settings" && type != "task"){
-    updateSelectOptionsFromData(type);
   }
 
   ttSave();
-  setFeedback(feedbackMsg);
+  setFeedback('Item updated');
   cancelEditForm();
 
   if(typeof currentView.update == "function"){
@@ -2071,21 +799,21 @@ function deleteConfirm(msg,yesCallback,noCallback){
 
 function deleteGeneralFromEditForm(type,id){
 
-/*
-  deleteConfirm("Are you sure you would like to delete this "+type+" (and all sub items?",function(){
-
-
-  }
-*/
-
   if(confirm("Are you sure you would like to delete this "+type+" (and all sub items)?")){
 
     dbg('deleteGeneralFromEditForm() with:',[type,id]);
 
-    deleteItemById(type,id);
-
-    if(type != "session" && type != "task"){
-      updateSelectOptionsFromData(type);                 // Move
+    if(type == "session"){
+      // Delete session from node structure
+      for(var nodeId in ttData.nodes){
+        if(ttData.nodes[nodeId].sessions && ttData.nodes[nodeId].sessions[id]){
+          delete ttData.nodes[nodeId].sessions[id];
+          break;
+        }
+      }
+    }else if(ttData.nodes[id]){
+      // Delete node
+      deleteNodeLocally(id);
     }
 
     ttSave();
@@ -2101,21 +829,19 @@ function deleteGeneralFromEditForm(type,id){
 function showGeneralEditForm(type,id){
 
   if(!id){
-    if(type == "client" && typeof current_client == "object"){
-      id = current_client.id;
-    }else if(type == "project" && typeof current_project == "object")
-      id = current_project.id;
-  }
-
-  if(!id){
     setFeedback("No item ID or current item in edit!","error");
+    return;
   }
 
   edit_element = document.getElementById("edit-popup");
 
   $("#edit-popup").html("<h3>Edit "+type+"</h3><form>");
 
-  properties = getItemById(type,id);
+  if(type == 'session'){
+    properties = getSessionById(id);
+  }else{
+    properties = {};
+  }
 
   for (key in editFields[type]){
 
@@ -2129,11 +855,6 @@ function showGeneralEditForm(type,id){
       var val = "";
     }
 
-    // Convert estimate from seconds to minutes for display
-    if(type == "task" && key == "estimate" && val){
-      val = Math.round(val / 60);
-    }
-
     if(field.type == "text"){
          $("#edit-popup").append('<div class="edit-field">'+field.label+' <input type="text" value="'+val+'" id="'+type+'-'+key+'-edit-input"/></div>');
     }else if(field.type == "select"){
@@ -2145,22 +866,7 @@ function showGeneralEditForm(type,id){
       var select = document.createElement('select');
       select.id = type+'-'+key+'-edit-input';
 
-      // Handle dynamic options for parent selectors
-      var options;
-      if(field.dynamicOptions) {
-        options = buildDynamicOptions(field.dynamicOptions);
-
-        // Set current value from parent context
-        if(key === "_client" && type === "project") {
-          var branch = getBranchById("project", id);
-          val = branch.client.id;
-        } else if(key === "_project" && type === "task") {
-          var branch = getBranchById("task", id);
-          val = branch.project.id;
-        }
-      } else {
-        options = field.options;
-      }
+      var options = field.options;
 
       for (var optkey in options){
         var option = new Option(options[optkey],optkey);
@@ -2206,12 +912,7 @@ function setView(view){
     if(view == "analyze"){
       currentView = analyze;
     }else if(view == "taskList"){
-      // Use treeView for v2 node structure, taskList for legacy
-      if (isNodeStructure()) {
-        currentView = treeView;
-      } else {
-        currentView = taskList;
-      }
+      currentView = treeView;
     }else if(view == "settingsView"){
       currentView = settingsView;
     }else if(view == "todayView"){
@@ -2258,41 +959,6 @@ function emitEvent(type,action,value){
     }
   }
 
-  /* This function should end here. Following conditional statements will be removed */
-  if(type == "task"){
-    if(action == "delete" || action == "edited" || action == "added" || action == "updated" ){
-      if(typeof currentView.filter == "function"){
-         currentView.filter();
-      }
-      if(typeof currentView.update == "function"){
-         currentView.update();
-      }
-
-    }
-  }else if(type == "client"){
-    if(action == "set"){
-      setProject("all");
-
-      if(typeof currentView.setClient == "function"){
-         currentView.setClient(value);
-      }else{
-
-        if(typeof currentView.filter == "function"){
-           currentView.filter();
-        }
-        if(typeof currentView.update == "function"){
-           currentView.update();
-        }
-
-      }
-    }
-  }else if(type == "project"){
-    if(action == "set"){
-      if(typeof currentView.setProject == "function"){
-         currentView.setProject();
-      }
-    }
-  }
 }
 
 
@@ -2331,627 +997,6 @@ function getEventWatchers(owner){
 }
 
 
-/* ########################### Client Controls ########################## */
-
-clientControls.show = function(){
-
-  addEventWatcher('client','add',function(id){
-    clientControls.update();
-    dbg("Calling cancelAddClientFOrm in client add event watcher");
-    clientControls.cancelAddClientForm();
-  },'clientControls');
-
-  addEventWatcher('server','synch',function(){
-    clientControls.update();
-  },'clientControls');
-
-  addEventWatcher('client','set',function(id){
-    dbg("clientControls client set watcher fired with id",id);
-    if(id == "all" || id == ""){
-      gebi("edit-client-button").style.display = "none";
-    }else{
-      gebi("edit-client-button").style.display = "block";
-    }
-
-    gebi("client-select").value = id;
-
-  },'clientControls');
-
-  clientControls.update();
-
-  gebi("client-controls").style.display = "block";
-
-}
-
-clientControls.hide = function(){
-  removeEventWatchers('clientControls');
-  gebi("#client-controls").style.display = "none";
-}
-
-clientControls.update = function(){
-
-    var options = [];
-
-    for (client_id in ttData.clients){
-      options.push([client_id,ttData.clients[client_id].name]);
-    }
-
-    options.sort(function(a, b) {
-      a = a[1];
-      b = b[1];
-      return a.localeCompare(b);
-    });
-
-    options.unshift(['all','All Clients...']);
-
-    updateSelectOptions(gebi("client-select"),options);
-
-    var currentValue = 'all';
-
-    if(typeof current_client == "object"){
-       currentValue = current_client.id || "all";
-    }
-    gebi("client-select").value = currentValue;
-
-}
-
-clientControls.showAddClientForm = function(){
-   gebi('add-client-form').style.display = "block";
-   gebi('select-client-form').style.display = "none";
-}
-
-clientControls.cancelAddClientForm = function(){
-  gebi('add-client-input').value = '';
-  gebi('add-client-form').style.display = "none";
-  gebi('select-client-form').style.display = "block";
-}
-
-
-
-/* ########################### Project Controls ########################## */
-
-projectControls = {}
-
-projectControls.show = function(){
-
-  if(getEventWatchers('projectControls').length < 1){
-
-      addEventWatcher('server','synch',function(){
-        projectControls.update();
-      },'projectControls');
-
-      addEventWatcher('project','set',function(id){
-
-        dbg("Project set watcher fired");
-
-        if(id == "all" || id == ""){
-          gebi("edit-project-button").style.display = "none";
-        }else{
-          gebi("edit-project-button").style.display = "block";
-        }
-
-        projectControls.update();
-      },'projectControls');
-
-      addEventWatcher('client','set',function(id){
-        if(id == "all"){
-          projectControls.hide();
-        }else{
-          projectControls.show();
-        }
-
-      },'projectControls');
-
-      addEventWatcher('project','delete',function(id){
-
-        dbg("Project delete watcher fired");
-
-        setProject("all");
-
-        if(current_client.projects.length < 1){
-          projectControls.showAddProjectForm();
-        }
-
-        projectControls.update();
-      },'projectControls');
-  }
-
-  projectControls.update();
-  gebi("project-controls").style.display = "block";
-
-}
-
-projectControls.hide = function(){
-  // removeEventWatchers('projectControls');
-  gebi("project-controls").style.display = "none";
-}
-
-projectControls.update = function(){
-
-    dbg("Updating project controls");
-
-    var options = [];
-
-    if(typeof current_client == "object" && current_client != "all"){
-
-      if(getMemberCount(current_client.projects) > 0){
-        projectControls.cancelAddProjectForm();
-
-        for (project_id in current_client.projects){
-           options.push([project_id,current_client.projects[project_id].name]);
-        }
-
-        options.sort(function(a, b) {
-            a = a[1];
-            b = b[1];
-            return a.localeCompare(b);
-        });
-
-        options.unshift(['all','All Projects...']);
-
-        updateSelectOptions(gebi("project-select"),options);
-
-        var currentValue = 'all';
-
-        if(typeof current_project == "object"){
-           currentValue = current_project.id || "all";
-        }
-
-        dbg("Setting project select value to",currentValue);
-        dbg("Current_project",current_project);
-
-        gebi("project-select").value = currentValue;
-      }else{
-        projectControls.showAddProjectForm();
-      }
-    }
-
-}
-
-projectControls.showAddProjectForm = function(){
-   gebi('add-project-form').style.display = "block";
-   gebi('select-project-form').style.display = "none";
-}
-
-projectControls.cancelAddProjectForm = function(){
-  gebi('add-project-input').value = '';
-  gebi('add-project-form').style.display = "none";
-  gebi('select-project-form').style.display = "block";
-}
-
-
-/* These will be removed ... */
-
-function addClientForm(){
-   gebi('add-client-form').style.display = "block";
-   gebi('select-client-form').style.display = "none";
-}
-
-// And this too
-function cancelAddClient(){
-  gebi('add-client-input').value = '';
-  gebi('add-client-form').style.display = "none";
-  gebi('select-client-form').style.display = "block";
-}
-
-
-
-
-/* ########################### TASK LIST VIEW ######################### */
-
-taskList.show = function(){
-
-  addEventWatcher('client','set',function(clientId){
-
-    delete taskList.projectFilter;
-
-    if(clientId == "all" || clientId == ""){
-      delete taskList.clientFilter;
-    }else{
-      taskList.clientFilter = {
-        type : "client",
-        field : "id",
-        condition : "equals",
-        value : current_client.id
-      };
-
-    }
-
-    taskList.update();
-
-  },'taskList');
-
-  addEventWatcher('server','synch',function(){
-    taskList.update();
-    taskList.populateTagDropdown();
-    dbg("taskList server synch watcher fired");
-  },'taskList');
-
-  addEventWatcher('task','added',function(){
-    taskList.populateTagDropdown();
-  },'taskList');
-
-  addEventWatcher('project','set',function(projectId){
-
-      if(projectId == "all" || projectId == ""){
-          delete taskList.projectFilter;
-      }else{
-          taskList.projectFilter = {
-            type : "project",
-            field : "id",
-            condition : "equals",
-            value : projectId
-          };
-
-      }
-
-      taskList.update();
-
-  },'taskList');
-
-
-
-  if(getCurrent("client") && getCurrent("client") != "all" && !taskList.clientFilter){
-      taskList.clientFilter = {
-        type : "client",
-        field : "id",
-        condition : "equals",
-        value : current_client.id
-      };
-  }
-
-
-  if(getCurrent("project") && getCurrent("project") != "all" && !taskList.projectFilter){
-      taskList.projectFilter = {
-        type : "project",
-        field : "id",
-        condition : "equals",
-        value : current_project.id
-      };
-  }
-
-  if(!taskList.sortBy){
-    taskList.sortBy = getSetting('default_task_sort');
-    taskList.sortDirection = getSetting('default_task_sort_direction');
-  }
-  dbg("Tasklist.sortBy",taskList.sortBy);
-
-  // Populate tag filter dropdown
-  taskList.populateTagDropdown();
-  taskList.renderTagFilters();
-
-  taskList.update();
-
-}
-
-taskList.hide = function(){
-  removeEventWatchers('taskList');
-}
-
-// Tag filter state
-taskList.tagFilters = [];
-
-taskList.addTagFilter = function(tag){
-  if(tag && taskList.tagFilters.indexOf(tag) === -1){
-    taskList.tagFilters.push(tag);
-    taskList.renderTagFilters();
-    taskList.update();
-  }
-  gebi('tag-filter-select').value = '';
-};
-
-taskList.removeTagFilter = function(tag){
-  var index = taskList.tagFilters.indexOf(tag);
-  if(index > -1){
-    taskList.tagFilters.splice(index, 1);
-    taskList.renderTagFilters();
-    taskList.update();
-  }
-};
-
-taskList.clearTagFilters = function(){
-  taskList.tagFilters = [];
-  taskList.renderTagFilters();
-  taskList.update();
-};
-
-taskList.renderTagFilters = function(){
-  var container = gebi('active-tag-filters');
-  if(!container) return;
-
-  var html = '';
-  for(var i = 0; i < taskList.tagFilters.length; i++){
-    var tag = taskList.tagFilters[i];
-    html += '<span class="tag-chip">#' + escapeHtml(tag) +
-            ' <i class="fa fa-times" onclick="taskList.removeTagFilter(\'' +
-            tag + '\')"></i></span>';
-  }
-
-  container.innerHTML = html;
-};
-
-taskList.populateTagDropdown = function(){
-  var select = gebi('tag-filter-select');
-  if(!select) return;
-
-  var tags = getAllTags();
-
-  // Clear existing options except first
-  while(select.options.length > 1){
-    select.remove(1);
-  }
-
-  // Add tag options
-  for(var i = 0; i < tags.length; i++){
-    var opt = document.createElement('option');
-    opt.value = tags[i];
-    opt.textContent = '#' + tags[i];
-    select.appendChild(opt);
-  }
-};
-
-taskList.filter = function(){
-
-    taskList.tasks = [];
-
-    var fs = [];
-
-    if(taskList.clientFilter){
-      fs.push(taskList.clientFilter);
-    }
-    if(taskList.projectFilter){
-      fs.push(taskList.projectFilter);
-    }
-
-    dbg("Tasklist filters",fs);
-
-    loopData(fs,function(){
-      if(this.task){
-
-        // Apply tag filter
-        if(taskList.tagFilters.length > 0){
-          if(!taskHasTags(this.task, taskList.tagFilters)){
-            return "continue";
-          }
-        }
-
-        if(!this.task.time){
-          this.task.time = 0;
-          for (var sesId in this.task.sessions){
-            if(this.task.sessions[sesId].start_time && this.task.sessions[sesId].end_time){
-                this.task.time += timeDiffSecsFromString(this.task.sessions[sesId].start_time,this.task.sessions[sesId].end_time);
-            }
-
-          }
-        }
-
-        this.task.sessionCount = getMemberCount(this.task.sessions);
-
-        if(this.task.sessionCount > 0){
-          var sesKeys = Object.keys(this.task.sessions);
-          var lastSession = this.task.sessions[sesKeys[sesKeys.length-1]];
-
-          this.task.lastSessionTime = this.task.sessions[sesKeys[sesKeys.length-1]].end_time;
-        }else{
-          this.task.lastSessionTime = "";
-        }
-
-
-
-
-
-        this.task.meta = {};
-
-        if(typeof current_client != "object" || current_client == ""){
-          this.task.client = this.client.name;
-        }else{
-          this.task.client = '';
-        }
-
-        if(typeof current_project !== "object"){
-          this.task.project = truncate(this.project.name,25)+" ";
-        }else{
-          this.task.project = '';
-        }
-
-        if(this.task.project && this.task.client){
-          this.task.metaParentage =  "<span>"+this.task.client+" > "+this.task.project+"</span>";
-        }else if(this.task.project){
-          this.task.metaParentage =  "<span>"+this.task.project+"</span>"
-        }else{
-          this.task.metaParentage =  "";
-        }
-
-        this.task.truncateName = truncate(this.task.name,55);
-
-
-        if(this.task.time > 0){
-          this.task.metaPrettyTime = "<span>"+prettyTime(this.task.time)+"</span>";
-        }else{
-          this.task.metaPrettyTime = '';
-        }
-
-        if(this.task.estimate > 0){
-          this.task.metaEstimate = "<span class='task-estimate'>"+prettyTime(this.task.estimate)+"</span>";
-        }else{
-          this.task.metaEstimate = '';
-        }
-
-        this.task.metaDisplayStatus = "<span>"+editFields.task.status.options[this.task.status]+"</span>";
-
-        taskList.tasks.push(this.task);
-      }
-      return "continue";
-    });
-
-
-   var noDataRow = document.getElementById("no-data-found-table");
-   if (noDataRow) {
-     if(taskList.tasks.length < 1){
-       noDataRow.style.display = "table-row";
-     }else{
-       noDataRow.style.display = "none";
-     }
-   }
-}
-
-taskList.hideNewTaskForm = function(){
-  gebi("task-form").style.display = "none";
-}
-
-taskList.sort = function(field){
-    taskList.sortData(field);
-    taskList.refresh();
-}
-
-taskList.sortData = function(field){
-
-    //taskList.sortDirection = "asc";
-    if(field){
-      if(taskList.sortBy == field){
-        if(taskList.sortDirection == "asc"){
-          taskList.sortDirection = "desc";
-        }else{
-          taskList.sortDirection = "asc";
-        }
-      }else{
-        taskList.sortBy = field;
-      }
-    }
-
-    taskList.tasks.sort(function(a, b) {
-
-      if(!a[taskList.sortBy]){
-        a[taskList.sortBy] = '';
-      }
-      if(!b[taskList.sortBy]){
-        b[taskList.sortBy] = '';
-      }
-      // Numeric sort
-      if(taskList.sortBy == "time" || taskList.sortBy == "sessionCount"){
-        if(taskList.sortDirection == "desc"){
-          return b[taskList.sortBy]-a[taskList.sortBy];
-        }else{
-          return a[taskList.sortBy]-b[taskList.sortBy];
-        }
-      // String sort
-      }else{
-        if(taskList.sortDirection == "desc"){
-          return b[taskList.sortBy].toString().localeCompare(a[taskList.sortBy].toString());
-        }else{
-          return a[taskList.sortBy].toString().localeCompare(b[taskList.sortBy].toString());
-        }
-      }
-
-
-   });
-}
-
-taskList.update = function(){
-   taskList.filter();
-   taskList.sortData();
-   taskList.refresh();
-}
-
-taskList.refresh = function(){
-
-   var addTaskForm = gebi("tasklist-new-task-form");
-   var templateEl = gebi('task-list-item-template');
-   var template = templateEl.innerHTML;
-   var listContainer = templateEl.parentNode;
-
-   listContainer.innerHTML = '';
-
-   // Task input is always visible (supports inline client/project via autocomplete)
-   addTaskForm.style.display = "block";
-
-   listContainer.appendChild(addTaskForm);
-   listContainer.appendChild(templateEl);
-
-
-  for (taskListKey in taskList.tasks){
-     var task = taskList.tasks[taskListKey];
-
-     // Apply filters
-     var showTask = true;
-     if(taskList.hideCompletedTasks && task.status == "completed"){
-       showTask = false;
-     }
-     if(taskList.showOnlyStarred && task.starred != "1"){
-       showTask = false;
-     }
-
-     if(showTask){
-
-       var templateData = [];
-
-       for (taskKey in task){
-          templateData.push({placeholder: "{{task."+taskKey+"}}", value: task[taskKey]});
-       }
-
-       if(task.status == "completed"){
-         var completedFlag = "checked";
-       }else{
-         var completedFlag = "";
-       }
-       dbg(getSetting("show_billability"));
-       if(task.billable == "1" && getSetting("show_billability") == "yes"){
-          var billable_display = "inline-block";
-       }else{
-          var billable_display = "none";
-       }
-
-
-       var completedInput = "<input type=\"checkbox\" name=\"task-completed\" "+completedFlag+" onClick=\"setTaskComplete('"+task.id+"')\"/>";
-
-       var starClass = (task.starred == "1") ? "starred" : "";
-       var starIcon = "<i class='fa fa-star task-star " + starClass + "' onClick=\"toggleTaskStar('" + task.id + "')\"></i>";
-
-       templateData.push({placeholder:"{{checkCompleted}}",value: completedInput});
-       templateData.push({placeholder:"{{starIcon}}",value: starIcon});
-       templateData.push({placeholder:"{{billable_display}}",value: billable_display});
-
-
-       if(task.prettyTime){
-         var metaSeparator = "|";
-       }else{
-         var metaSeparator = "";
-       }
-
-       templateData.push({placeholder:"{{metaSeparator}}",value: metaSeparator});
-
-       var taskEl = templateEl.cloneNode(false);
-       taskEl.id = "task-"+task.id;
-       taskEl.style.display = "block";
-       taskEl.innerHTML = fillTemplate(templateData,template);
-       templateEl.parentNode.appendChild(taskEl);
-     }
-  }
-
-  templateEl.style.display = "none";
-
-}
-
-
-taskList.hideCompleted = function(){
-   taskList.hideCompletedTasks = gebi("hide-completed").checked ? true : false;
-   taskList.update();
-}
-
-taskList.toggleStarFilter = function(){
-   taskList.showOnlyStarred = !taskList.showOnlyStarred;
-
-   var filterIcon = gebi("filter-starred");
-   if(taskList.showOnlyStarred){
-     filterIcon.classList.add("filter-active");
-   }else{
-     filterIcon.classList.remove("filter-active");
-   }
-
-   taskList.update();
-}
-
-
 /* ################################ TREE VIEW (v2) - Outliner Style ################################ */
 
 var treeView = {};
@@ -2975,10 +1020,6 @@ function nodeIsTask(nodeId) {
 }
 
 treeView.show = function() {
-  // Hide legacy client/project controls
-  var controls = gebi("client-project-controls");
-  if (controls) controls.style.display = "none";
-
   addEventWatcher('server', 'synch', function() {
     treeView.update();
   }, 'treeView');
@@ -3013,7 +1054,7 @@ treeView._doUpdate = function() {
   container.innerHTML = '';
 
   // Empty tree case
-  if (!isNodeStructure() || (ttData.rootOrder || []).length === 0) {
+  if ((ttData.rootOrder || []).length === 0) {
     container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
     container.onclick = function() { treeView.addFirst(); };
   } else {
@@ -4599,15 +2640,11 @@ settingsView.show = function(){
     }
   }
 
-  gebi("client-controls").style.display = "none";
-  gebi("project-controls").style.display = "none";
 
 }
 
 
 settingsView.hide = function(){
-  gebi("client-controls").style.display = "block";
-  gebi("project-controls").style.display = "block";
 }
 
 settingsView.save = function(){
@@ -4625,12 +2662,6 @@ settingsView.save = function(){
 /* ################################ TODAY VIEW ################################ */
 
 todayView.show = function(){
-  // Hide client/project controls - not needed for today view
-  gebi("client-project-controls").style.display = "none";
-
-  // Initialize autocomplete for today view task input
-  todayAutocomplete.init();
-
   // Initialize task containers
   todayView.morningTasks = [];
   todayView.starredTasks = [];
@@ -4658,9 +2689,6 @@ todayView.show = function(){
 
 todayView.hide = function(){
   removeEventWatchers('todayView');
-
-  // Show client/project controls again
-  gebi("client-project-controls").style.display = "block";
 };
 
 todayView.filter = function(){
@@ -4671,115 +2699,55 @@ todayView.filter = function(){
   // Track task IDs already categorized to avoid duplicates
   var categorizedIds = {};
 
-  if (isNodeStructure()) {
-    // v2: Node-based structure
-    var allTasks = getAllTaskNodes();
+  var allTasks = getAllTaskNodes();
 
-    for (var i = 0; i < allTasks.length; i++) {
-      var task = allTasks[i];
+  for (var i = 0; i < allTasks.length; i++) {
+    var task = allTasks[i];
 
-      // Skip completed tasks
-      if (task.status === 'completed') {
-        continue;
-      }
-
-      // Add metadata for display
-      task.truncateName = truncate(task.name, 55);
-
-      // Build path for display
-      var path = getNodePath(task.id);
-      if (path.length > 1) {
-        var pathNames = [];
-        for (var p = 0; p < path.length - 1; p++) {
-          pathNames.push(path[p].name);
-        }
-        task.metaParentage = '<span>' + escapeHtml(pathNames.join(' > ')) + '</span>';
-      } else {
-        task.metaParentage = '';
-      }
-
-      // Calculate time and estimate
-      task.time = calculateNodeTime(task.id);
-      task.metaPrettyTime = (task.time > 0) ? ' | ' + prettyTime(task.time) : '';
-      task.metaEstimate = (task.estimate > 0) ? ' | est ' + prettyTime(task.estimate) : '';
-
-      // Check for morning tasks (#daily + #morning in name)
-      if (taskHasTags(task, ['daily', 'morning'])) {
-        todayView.morningTasks.push(task);
-        categorizedIds[task.id] = true;
-        continue;
-      }
-
-      // Check for evening tasks (#daily + #evening in name)
-      if (taskHasTags(task, ['daily', 'evening'])) {
-        todayView.eveningTasks.push(task);
-        categorizedIds[task.id] = true;
-        continue;
-      }
-
-      // Check for starred tasks (not already categorized)
-      if (task.starred === '1' && !categorizedIds[task.id]) {
-        todayView.starredTasks.push(task);
-        categorizedIds[task.id] = true;
-      }
+    // Skip completed tasks
+    if (task.status === 'completed') {
+      continue;
     }
 
-  } else {
-    // v1: Legacy client/project/task structure
-    loopData([], function(){
-      if(this.level == "task"){
-        var task = this.task;
+    // Add metadata for display
+    task.truncateName = truncate(task.name, 55);
 
-        // Skip completed tasks
-        if(task.status == "completed"){
-          return;
-        }
-
-        // Add metadata for display
-        task.truncateName = truncate(task.name, 55);
-        task.client = this.client.name;
-        task.project = this.project.name;
-
-        if(task.project && task.client){
-          task.metaParentage = "<span>" + task.client + " > " + task.project + "</span>";
-        } else if(task.project){
-          task.metaParentage = "<span>" + task.project + "</span>";
-        } else {
-          task.metaParentage = "";
-        }
-
-        // Calculate time
-        task.time = 0;
-        for(var sid in task.sessions){
-          var session = task.sessions[sid];
-          if(session.start_time && session.end_time){
-            task.time += timeDiffSecsFromString(session.start_time, session.end_time);
-          }
-        }
-        task.metaPrettyTime = (task.time > 0) ? " | " + prettyTime(task.time) : "";
-        task.metaEstimate = (task.estimate > 0) ? " | est " + prettyTime(task.estimate) : "";
-
-        // Check for morning tasks (#daily + #morning in name)
-        if(taskHasTags(task, ["daily", "morning"])){
-          todayView.morningTasks.push(task);
-          categorizedIds[task.id] = true;
-          return;
-        }
-
-        // Check for evening tasks (#daily + #evening in name)
-        if(taskHasTags(task, ["daily", "evening"])){
-          todayView.eveningTasks.push(task);
-          categorizedIds[task.id] = true;
-          return;
-        }
-
-        // Check for starred tasks (not already categorized)
-        if(task.starred == "1" && !categorizedIds[task.id]){
-          todayView.starredTasks.push(task);
-          categorizedIds[task.id] = true;
-        }
+    // Build path for display
+    var path = getNodePath(task.id);
+    if (path.length > 1) {
+      var pathNames = [];
+      for (var p = 0; p < path.length - 1; p++) {
+        pathNames.push(path[p].name);
       }
-    });
+      task.metaParentage = '<span>' + escapeHtml(pathNames.join(' > ')) + '</span>';
+    } else {
+      task.metaParentage = '';
+    }
+
+    // Calculate time and estimate
+    task.time = calculateNodeTime(task.id);
+    task.metaPrettyTime = (task.time > 0) ? ' | ' + prettyTime(task.time) : '';
+    task.metaEstimate = (task.estimate > 0) ? ' | est ' + prettyTime(task.estimate) : '';
+
+    // Check for morning tasks (#daily + #morning in name)
+    if (taskHasTags(task, ['daily', 'morning'])) {
+      todayView.morningTasks.push(task);
+      categorizedIds[task.id] = true;
+      continue;
+    }
+
+    // Check for evening tasks (#daily + #evening in name)
+    if (taskHasTags(task, ['daily', 'evening'])) {
+      todayView.eveningTasks.push(task);
+      categorizedIds[task.id] = true;
+      continue;
+    }
+
+    // Check for starred tasks (not already categorized)
+    if (task.starred === '1' && !categorizedIds[task.id]) {
+      todayView.starredTasks.push(task);
+      categorizedIds[task.id] = true;
+    }
   }
 };
 
@@ -4788,36 +2756,21 @@ todayView.createTaskElement = function(task){
   taskDiv.className = "today-task-item";
   taskDiv.setAttribute("data-task-id", task.id);
 
-  // Determine which handlers to use based on data structure
-  var isV2 = isNodeStructure();
-
   // Checkbox for completion
   var checkedAttr = (task.status == "completed") ? "checked" : "";
-  var completeHandler = isV2
-    ? "todayView.toggleNodeComplete('" + task.id + "', this)"
-    : "setTaskComplete('" + task.id + "', this)";
   var checkCompleted = "<input type='checkbox' class='task-checkbox' " +
-    checkedAttr + " onchange=\"" + completeHandler + "\" />";
+    checkedAttr + " onchange=\"todayView.toggleNodeComplete('" + task.id + "', this)\" />";
 
   // Star icon
   var starClass = (task.starred == "1") ? "starred" : "";
-  var starHandler = isV2
-    ? "todayView.toggleNodeStar('" + task.id + "')"
-    : "toggleTaskStar('" + task.id + "')";
   var starIcon = "<i class='fa fa-star task-star " + starClass +
-    "' onclick=\"" + starHandler + "\"></i>";
+    "' onclick=\"todayView.toggleNodeStar('" + task.id + "')\"></i>";
 
   // Play button
-  var playHandler = isV2
-    ? "treeView.startSession('" + task.id + "')"
-    : "startGeneralSession('" + task.id + "')";
-  var playIcon = "<i onclick=\"" + playHandler +
-    "\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
+  var playIcon = "<i onclick=\"treeView.startSession('" + task.id + "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
 
   // Edit handler
-  var editHandler = isV2
-    ? "treeView.showEditForm('" + task.id + "')"
-    : "showGeneralEditForm('task','" + task.id + "')";
+  var editHandler = "treeView.showEditForm('" + task.id + "')";
 
   taskDiv.innerHTML =
     "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
@@ -5226,70 +3179,6 @@ function updateSelectOptions(target_element,new_options,append){
 }
 
 
-function updateSelectOptionsFromData(type,idSuffix){
-
-    idSuffix || (idSuffix = '');
-
-    options = [];
-
-    setToCurrent = false;
-
-    if(type == "client"){
-       for (client_id in ttData.clients){
-           options.push([client_id,ttData.clients[client_id].name]);
-       }
-       if(typeof current_client == "object"){
-          setToCurrent = current_client.id;
-       }
-    }else if(type == "project"){
-       for (project_id in current_client.projects){
-           options.push([project_id,current_client.projects[project_id].name]);
-       }
-       if(typeof current_project == "object"){
-          setToCurrent = current_project.id;
-       }
-    }else if(type == "task"){
-       for (task_id in current_project.tasks){
-           if(current_project.tasks[task_id].status == "completed"){
-             name_prepend = "[DONE] ";
-           }else{
-             name_prepend = "";
-           }
-           options.push([task_id,name_prepend+current_project.tasks[task_id].name]);
-       }
-       if(typeof current_task == "object"){
-          setToCurrent = current_task.id;
-       }
-    }
-
-
-    options.sort(function(a, b) {
-
-      a = a[1].replace('[DONE]','zzzz');
-      b = b[1].replace('[DONE]','zzzz');
-      return a.localeCompare(b);
-
-    });
-
-
-    if(!setToCurrent){
-      options.unshift(['all','All '+type+'s...']);
-    }
-
-
-    select_element = document.getElementById(type+'-select'+idSuffix);
-
-    updateSelectOptions(select_element,options);
-
-    if(setToCurrent){
-       select_element.value = setToCurrent;
-    }
-
-}
-
-
-
-
 /* ############################ SERVER SYNCHING ############################  */
 
 // Sync queue for tracking changes
@@ -5323,36 +3212,15 @@ synchQueue.add = function(action, type, id, parentId) {
 
 // Helper to get item data for sync
 function getItemData(type, id) {
-  // Handle node type separately
   if (type === 'node') {
     return getNodeData(id);
   }
 
-  // Handle node_session type
   if (type === 'node_session') {
     return getNodeSessionData(id);
   }
 
-  var item = getItemById(type, id);
-  if (!item) return null;
-
-  var data = { id: item.id, name: item.name };
-
-  if (type === 'task') {
-    data.status = item.status;
-    data.priority = item.priority;
-    data.billable = item.billable;
-    data.estimate = item.estimate;
-    data.due = item.due;
-    data.starred = item.starred;
-    data.notes = item.notes;
-  } else if (type === 'session') {
-    data.start_time = item.start_time;
-    data.end_time = item.end_time;
-    data.notes = item.notes;
-  }
-
-  return data;
+  return null;
 }
 
 // Helper to get node data for sync (v2 structure)
@@ -5453,59 +3321,6 @@ function synchToServer() {
   // No local changes - safe to do full download from server
   console.log('[SYNC] No local changes, downloading from server');
   synchFromServer();
-  return;
-
-  // --- Full upload code below is kept for explicit full sync scenarios ---
-  synchIconStatus("synching");
-
-  console.log('[SYNC] Starting full sync to server');
-
-  // Prepare data for upload
-  var syncData = {
-    ttData: {
-      dataVersion: ttData.dataVersion || 2,
-      userKey: ttData.userKey,
-      clients: ttData.clients,
-      settings: ttData.settings,
-      nodes: ttData.nodes || {},
-      rootOrder: ttData.rootOrder || []
-    }
-  };
-
-  $.ajax({
-    url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
-    type: 'POST',
-    contentType: 'application/json',
-    headers: { 'Authorization': 'Bearer ' + authToken },
-    data: JSON.stringify(syncData),
-    success: function(result) {
-      console.log('[SYNC] Upload success:', result);
-      if (result.success) {
-        setFeedback('Data uploaded. Fetching latest...');
-        // Clear sync queue after successful upload
-        synchQueue.queue = [];
-        ttData.synchQueue = [];
-        ttSave();
-        // Now fetch server data
-        synchFromServer();
-      } else {
-        setFeedback('Sync error: ' + (result.error || 'Unknown error'), 'error');
-        synchIconStatus("error");
-      }
-    },
-    error: function(xhr, ajaxOptions, thrownError) {
-      console.log('[SYNC] Upload error:', xhr.status, thrownError);
-      if (xhr.status === 401) {
-        setFeedback('Session expired. Please login again.', 'error');
-        authToken = null;
-        delete localStorage.authToken;
-        updateAuthUI();
-      } else {
-        setFeedback('Error synching to server: ' + thrownError, 'error');
-      }
-      synchIconStatus("error");
-    }
-  });
 }
 
 // Download data from server
@@ -5566,10 +3381,6 @@ function synchFromServer() {
         synchIconStatus("done");
         emitEvent('server', 'synch');
 
-        // Refresh UI
-        if (typeof taskList !== 'undefined' && taskList.show) {
-          taskList.show();
-        }
       } else {
         setFeedback('Sync completed (no server data)', 'notice');
         synchIconStatus("done");
@@ -5712,46 +3523,10 @@ function applyServerChanges(changes) {
 
 // Delete item locally (used by sync)
 function deleteItemLocally(type, uuid) {
-  // Handle v2 node types
   if (type === 'node') {
     deleteNodeLocally(uuid);
-    return;
   } else if (type === 'node_session') {
     deleteNodeSessionLocally(uuid);
-    return;
-  }
-
-  // Legacy v1 types
-  if (type === 'client') {
-    delete ttData.clients[uuid];
-  } else if (type === 'project') {
-    for (var cid in ttData.clients) {
-      if (ttData.clients[cid].projects && ttData.clients[cid].projects[uuid]) {
-        delete ttData.clients[cid].projects[uuid];
-        break;
-      }
-    }
-  } else if (type === 'task') {
-    for (var cid in ttData.clients) {
-      for (var pid in ttData.clients[cid].projects || {}) {
-        if (ttData.clients[cid].projects[pid].tasks && ttData.clients[cid].projects[pid].tasks[uuid]) {
-          delete ttData.clients[cid].projects[pid].tasks[uuid];
-          return;
-        }
-      }
-    }
-  } else if (type === 'session') {
-    for (var cid in ttData.clients) {
-      for (var pid in ttData.clients[cid].projects || {}) {
-        for (var tid in ttData.clients[cid].projects[pid].tasks || {}) {
-          if (ttData.clients[cid].projects[pid].tasks[tid].sessions &&
-              ttData.clients[cid].projects[pid].tasks[tid].sessions[uuid]) {
-            delete ttData.clients[cid].projects[pid].tasks[tid].sessions[uuid];
-            return;
-          }
-        }
-      }
-    }
   }
 }
 
@@ -5791,51 +3566,7 @@ function deleteNodeSessionLocally(sessionId) {
 
 // Upsert item locally (used by sync)
 function upsertItemLocally(type, uuid, data, parentUuid) {
-  if (type === 'client') {
-    if (!ttData.clients[uuid]) {
-      ttData.clients[uuid] = { id: uuid, projects: {} };
-    }
-    ttData.clients[uuid].name = data.name;
-  } else if (type === 'project' && parentUuid) {
-    if (ttData.clients[parentUuid]) {
-      if (!ttData.clients[parentUuid].projects) {
-        ttData.clients[parentUuid].projects = {};
-      }
-      if (!ttData.clients[parentUuid].projects[uuid]) {
-        ttData.clients[parentUuid].projects[uuid] = { id: uuid, tasks: {} };
-      }
-      ttData.clients[parentUuid].projects[uuid].name = data.name;
-    }
-  } else if (type === 'task' && parentUuid) {
-    // Find the project
-    for (var cid in ttData.clients) {
-      if (ttData.clients[cid].projects && ttData.clients[cid].projects[parentUuid]) {
-        var proj = ttData.clients[cid].projects[parentUuid];
-        if (!proj.tasks) proj.tasks = {};
-        if (!proj.tasks[uuid]) {
-          proj.tasks[uuid] = { id: uuid, sessions: {} };
-        }
-        Object.assign(proj.tasks[uuid], data);
-        return;
-      }
-    }
-  } else if (type === 'session' && parentUuid) {
-    // Find the task
-    for (var cid in ttData.clients) {
-      for (var pid in ttData.clients[cid].projects || {}) {
-        if (ttData.clients[cid].projects[pid].tasks &&
-            ttData.clients[cid].projects[pid].tasks[parentUuid]) {
-          var task = ttData.clients[cid].projects[pid].tasks[parentUuid];
-          if (!task.sessions) task.sessions = {};
-          if (!task.sessions[uuid]) {
-            task.sessions[uuid] = { id: uuid };
-          }
-          Object.assign(task.sessions[uuid], data);
-          return;
-        }
-      }
-    }
-  } else if (type === 'node') {
+  if (type === 'node') {
     upsertNodeLocally(uuid, data, parentUuid);
   } else if (type === 'node_session' && parentUuid) {
     upsertNodeSessionLocally(uuid, data, parentUuid);
@@ -6092,84 +3823,43 @@ function nodeRequest(direction,url){
 function makeFlatData(){
   flatData = {};
 
-  if (isNodeStructure()) {
-    // v2: Node-based structure
-    var allTasks = getAllTaskNodes();
+  var allTasks = getAllTaskNodes();
 
-    for (var i = 0; i < allTasks.length; i++) {
-      var task = allTasks[i];
+  for (var i = 0; i < allTasks.length; i++) {
+    var task = allTasks[i];
 
-      if (task.sessions && getMemberCount(task.sessions) > 0) {
-        // Build path for context
-        var path = getNodePath(task.id);
-        var pathNames = [];
-        for (var p = 0; p < path.length; p++) {
-          pathNames.push(path[p].name);
-        }
-
-        // Use path parts for client/project columns
-        var clientName = pathNames.length > 1 ? pathNames[0] : '';
-        var projectName = pathNames.length > 2 ? pathNames.slice(1, -1).join(' > ') : (pathNames.length > 1 ? '' : '');
-        var taskName = pathNames[pathNames.length - 1];
-
-        for (var session_id in task.sessions) {
-          var session = task.sessions[session_id];
-
-          if (session.start_time && session.end_time) {
-            flatData[session_id] = {
-              "client_id": path.length > 1 ? path[0].id : '',
-              "client": clientName,
-              "project": projectName,
-              "project_id": path.length > 2 ? path[path.length - 2].id : '',
-              "task": taskName,
-              "task_id": task.id,
-              "billable": task.billable,
-              "start_time": session.start_time,
-              "end_time": session.end_time,
-              "session_id": session_id,
-              "duration": timeDiffSecsFromString(session.start_time, session.end_time),
-              "durationHMS": timeFromSeconds(timeDiffSecsFromString(session.start_time, session.end_time)),
-              "node_path": pathNames.join(' > ')
-            };
-          }
-        }
+    if (task.sessions && getMemberCount(task.sessions) > 0) {
+      // Build path for context
+      var path = getNodePath(task.id);
+      var pathNames = [];
+      for (var p = 0; p < path.length; p++) {
+        pathNames.push(path[p].name);
       }
-    }
 
-  } else {
-    // v1: Legacy client/project/task structure
-    for (client_id in ttData.clients){
+      // Use path parts for client/project columns
+      var clientName = pathNames.length > 1 ? pathNames[0] : '';
+      var projectName = pathNames.length > 2 ? pathNames.slice(1, -1).join(' > ') : (pathNames.length > 1 ? '' : '');
+      var taskName = pathNames[pathNames.length - 1];
 
-      if(typeof ttData.clients[client_id].projects == "object"){
-         projects = ttData.clients[client_id].projects;
-         for (project_id in projects){
-          if(typeof projects[project_id].tasks == "object"){
-            tasks = projects[project_id].tasks;
-            for (task_id in tasks){
-              if(typeof tasks[task_id].sessions == "object" && getMemberCount(tasks[task_id].sessions) > 0){
-                for (session_id in tasks[task_id].sessions){
-                  session = tasks[task_id].sessions[session_id];
+      for (var session_id in task.sessions) {
+        var session = task.sessions[session_id];
 
-                  flatData[session_id] = {
-
-                    "client_id": client_id,
-                    "client": ttData.clients[client_id].name,
-                    "project" : projects[project_id].name,
-                    "project_id" : project_id,
-                    "task" : tasks[task_id].name,
-                    "task_id" : task_id,
-                    "billable" : tasks[task_id].billable,
-                    "start_time" :  session.start_time,
-                    "end_time" :  session.end_time,
-                    "session_id" :  session_id,
-                    "duration" : timeDiffSecsFromString(session.start_time,session.end_time),
-                    "durationHMS" : timeFromSeconds(timeDiffSecsFromString(session.start_time,session.end_time))
-
-                  };
-                }
-              }
-            }
-          }
+        if (session.start_time && session.end_time) {
+          flatData[session_id] = {
+            "client_id": path.length > 1 ? path[0].id : '',
+            "client": clientName,
+            "project": projectName,
+            "project_id": path.length > 2 ? path[path.length - 2].id : '',
+            "task": taskName,
+            "task_id": task.id,
+            "billable": task.billable,
+            "start_time": session.start_time,
+            "end_time": session.end_time,
+            "session_id": session_id,
+            "duration": timeDiffSecsFromString(session.start_time, session.end_time),
+            "durationHMS": timeFromSeconds(timeDiffSecsFromString(session.start_time, session.end_time)),
+            "node_path": pathNames.join(' > ')
+          };
         }
       }
     }
@@ -6200,223 +3890,24 @@ function filterFlatData(fs,callback){
 
 
 
-/** ############################# The Big Snazzy Data Looper Function ########################### */
-/**This is the big boss function that does all the things. I wouldn't recommend editing it, because it's
- * kinda gnarly. More documentation later */
-
-function loopData(fs,func){
-
-  if (func && typeof func != "function"){
-      throw new TypeError();
-  }
-
-  clientLoop: for (var client_id in ttData.clients){
-
-    // Filter
-    for(key in fs){
-      if(fs[key].type == "client"){
-        if(!filterMatch(fs[key].value,ttData.clients[client_id][fs[key].field],fs[key].condition)){
-          continue clientLoop;
-        }
-      }
-    }
-
-    // Callback
-    if(func){
-      res = func.call({level:"client", client: ttData.clients[client_id]});
-      if (res == "break"){
-        return;
-      }
-    }
-
-    if(typeof ttData.clients[client_id].projects == "object"){
-       projects = ttData.clients[client_id].projects;
-       projectLoop: for (var project_id in projects){
-
-        // Filter
-        for(key in fs){
-          if(fs[key].type == "project"){
-            if(!filterMatch(fs[key].value,projects[project_id][fs[key].field],fs[key].condition)){
-              continue projectLoop;
-            }
-          }
-        }
-
-        // Callback
-        if(func){
-          res = func.call({level:"project", client : ttData.clients[client_id],project : projects[project_id]});
-          if (res == "break"){
-            return;
-          }
-        }
-
-        if(typeof projects[project_id].tasks == "object"){
-          tasks = projects[project_id].tasks;
-          taskLoop: for (var task_id in tasks){
-
-
-            // Filter
-            for(key in fs){
-              if(fs[key].type == "task"){
-                if(!filterMatch(fs[key].value,tasks[task_id][fs[key].field],fs[key].condition)){
-                  continue taskLoop;
-                }
-              }
-            }
-
-
-            // Callback
-            if(func){
-              res = func.call({level:"task", client : ttData.clients[client_id],project : projects[project_id], task:  tasks[task_id]});
-              if (res == "break"){
-                return;
-              }else if(res == "continue"){
-                continue taskLoop;
-              }
-            }
-
-
-            if(typeof tasks[task_id].sessions == "object" && getMemberCount(tasks[task_id].sessions) > 0){
-              sessions = tasks[task_id].sessions;
-              sessionLoop: for (var session_id in sessions){
-
-                // Filter
-                for(key in fs){
-                  if(fs[key].type == "session"){
-                    if(!filterMatch(fs[key].value,sessions[session_id][fs[key].field],fs[key].condition)){
-                      continue sessionLoop;
-                    }
-                  }
-                }
-
-                // Callback
-                if(func){
-                  res = func.call({
-                    level:"session",
-                    client : ttData.clients[client_id],
-                    project : projects[project_id],
-                    task:  tasks[task_id],
-                    session: sessions[session_id]
-                  });
-                  if (res == "break"){
-                    return;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+/**
+ * Get a session by ID from the node structure
+ * @param {string} id - Session ID
+ * @returns {object} - Session object or empty object
+ */
+function getSessionById(id) {
+  if (!ttData.nodes) return {};
+  for (var nodeId in ttData.nodes) {
+    var node = ttData.nodes[nodeId];
+    if (node.sessions && node.sessions[id]) {
+      return node.sessions[id];
     }
   }
+  return {};
 }
 
 
-function filterMatch(filterValue,dataValue,condition){
-
-  if(condition == "equals"){
-    if(filterValue == dataValue){
-      return true;
-    }
-  }else if(condition == ">"){
-    if(filterValue < dataValue){
-      return true;
-    }
-  }else if(condition == "<"){
-    if(filterValue > dataValue){
-      return true;
-    }
-  }else if(condition == "includes"){
-    if(dataValue.indexOf(filterValue) > -1){
-      return true;
-    }
-  }
-
-}
-
-// Get a particular item out of the data array, regardless of what's current
-function getItemById(type,id){
-
-  var wantedItem = {};
-
-  loopData([{type:type,value:id,field:"id",condition:"equals"}],function(){
-    if(this.level == type){
-      wantedItem = this[type];
-      return "break";
-    }
-  });
-
-  // If session not found in old structure, search node structure
-  if(type === 'session' && Object.keys(wantedItem).length === 0 && ttData.nodes){
-    for(var nodeId in ttData.nodes){
-      var node = ttData.nodes[nodeId];
-      if(node.sessions && node.sessions[id]){
-        wantedItem = node.sessions[id];
-        break;
-      }
-    }
-  }
-
-  return wantedItem;
-}
-// Get a particular branch out of the data array, regardless of what's current
-function getBranchById(type,id){
-
-  var branch = {};
-
-  loopData([{type:type,value:id,field:"id",condition:"equals"}],function(){
-    if(this.level == type){
-      branch = this;
-      return "break";
-    }
-  });
-
-  return branch;
-}
-
-function updateItemById(type,id,data){
-
-    dbg("updateItemById(type,id,data)",[type,id,data]);
-
-    if(type == 'client'){
-      ttData.clients[id] = data;
-    }else{
-      loopData([{type:type,value:id,field:"id",condition:"equals"}],function(){
-        if(this.level == type){
-          if(type == "project"){
-            ttData.clients[this.client.id].projects[this.project.id] = data;
-          }else if(type == "task"){
-            ttData.clients[this.client.id].projects[this.project.id].tasks[this.task.id] = data;
-          }else if(type == "session"){
-            ttData.clients[this.client.id].projects[this.project.id].tasks[this.task.id].sessions[this.session.id] = data;
-          }
-          return "break";
-        }
-      });
-    }
-}
-
-function deleteItemById(type,id){
-    if(type == 'client'){
-      delete ttData.clients[id];
-    }else{
-      loopData([{type:type,value:id,field:"id",condition:"equals"}],function(){
-        if(this.level == type){
-          if(type == "project"){
-            delete ttData.clients[this.client.id].projects[this.project.id];
-          }else if(type == "task"){
-            delete ttData.clients[this.client.id].projects[this.project.id].tasks[this.task.id];
-          }else if(type == "session"){
-            delete ttData.clients[this.client.id].projects[this.project.id].tasks[this.task.id].sessions[this.session.id];
-          }
-          return "break";
-        }
-      });
-    }
-}
-
-
-/* ######################### NODE-BASED DATA FUNCTIONS (v2) ######################### */
+/* ######################### NODE-BASED DATA FUNCTIONS ######################### */
 
 /**
  * Get node by ID
@@ -6781,109 +4272,10 @@ function getAllTaskNodes() {
   return tasks;
 }
 
-/**
- * Check if data is using new node structure (v2)
- * @returns {boolean}
- */
-function isNodeStructure() {
-  return ttData.dataVersion === 2 && typeof ttData.nodes === 'object';
-}
-
-/* An efficient method of updating single values if the full tree is known */
-function updateValueByBranch(branchSpec,field,value){
-
-  var bs = branchSpec;
-
-  // Don't allow dangerous updates...
-  if(field == "projects" || field == "tasks" || field == "sessions"){
-    console.log("Invalid field name in updateValueByBranch()",field);
-    return;
-  }
-
-  if(bs.client && bs.project && bs.task && bs.session){
-     ttData.clients[bs.client].projects[bs.project].tasks[bs.task].sessions[bs.session][field] = value;
-  }else if(bs.client && bs.project && bs.task){
-     ttData.clients[bs.client].projects[bs.project].tasks[bs.task][field] = value;
-  }else if(bs.client && bs.project){
-     ttData.clients[bs.client].projects[bs.project][field] = value;
-  }else if(bs.client){
-     ttData.clients[bs.client][field] = value;
-  }
-
-}
-
-/* Older version, based on current values (don't use) */
-function updateDataObject(level,data){
-  if(level == 'client'){
-    ttData.clients[current_client.id] = data;
-  }
-  if(level == 'project'){
-    ttData.clients[current_client.id].projects[current_project.id] = data;
-  }
-  if(level == 'task'){
-    ttData.clients[current_client.id].projects[current_project.id].tasks[current_task.id] = data;
-  }
-  if(level == 'session'){
-    if(typeof ttData.clients[current_client.id].projects[current_project.id].tasks[current_task.id].sessions != "object"){
-       ttData.clients[current_client.id].projects[current_project.id].tasks[current_task.id].sessions = {};
-    }
-    ttData.clients[current_client.id].projects[current_project.id].tasks[current_task.id].sessions[data.id] = data;
-  }
-}
-
-
-function getCurrent(type){
-  if(type == "client"){
-    return current_client;
-  }else if(type == "project"){
-    return current_project;
-  }else if(type == "task"){
-    return current_task;
-  }else if(type == "session"){
-    return current_session;
-  }
-}
-
 function ttSave(){
   localStorage.ttData = JSON.stringify(ttData);
 }
 
-function ttSaveCurrent(){
-
-  dbg("Saving current values");
-  dbg("Client",current_client);
-  dbg("Project",current_project);
-  dbg("Task",current_task);
-
-  if(current_client){
-
-      localStorage.ttClientId = current_client.id;
-
-      if(current_project){
-
-          localStorage.ttProjectId = current_project.id;
-
-          if(current_task){
-            localStorage.ttTaskId = current_task.id;
-
-            if(current_session){
-               localStorage.ttSessionId = current_session.id;
-            }
-
-
-          }
-
-      }else{
-        //dbg('Current client but no project found');
-        delete localStorage.ttProjectId;
-        delete localStorage.ttTaskId;
-      }
-
-  }else{
-    //dbg('No current client found');
-  }
-
-}
 
 
 
@@ -7034,16 +4426,13 @@ function taskHasTags(task, requiredTags){
  */
 function getAllTags(){
   var tagSet = {};
-
-  loopData([], function(){
-    if(this.level === "task"){
-      var tags = extractTags(this.task.name);
-      for(var i = 0; i < tags.length; i++){
-        tagSet[tags[i]] = true;
-      }
+  var allTasks = getAllTaskNodes();
+  for(var i = 0; i < allTasks.length; i++){
+    var tags = extractTags(allTasks[i].name);
+    for(var j = 0; j < tags.length; j++){
+      tagSet[tags[j]] = true;
     }
-  });
-
+  }
   return Object.keys(tagSet).sort();
 }
 
