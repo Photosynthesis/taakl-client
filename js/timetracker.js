@@ -1005,9 +1005,305 @@ var treeView = {};
 treeView.searchFilter = '';
 treeView.hideCompleted = true;
 treeView.focusedNodeId = null;
+treeView.viewingNodeId = null; // null = full tree, set = node detail view
 treeView.originalValues = {}; // Store original values for change detection
 treeView.updateScheduled = false; // Prevent redundant updates
 treeView._isRendering = false; // True during DOM rebuild (suppresses blur side-effects)
+
+// Helper: create a metadata label/value pair element
+treeView._metaItem = function(label, value) {
+  var item = document.createElement('div');
+  item.className = 'node-view-meta-item';
+  var lbl = document.createElement('span');
+  lbl.className = 'node-view-meta-label';
+  lbl.textContent = label;
+  var val = document.createElement('span');
+  val.className = 'node-view-meta-value';
+  if (typeof value === 'string') {
+    val.textContent = value;
+  } else {
+    val.appendChild(value);
+  }
+  item.appendChild(lbl);
+  item.appendChild(val);
+  return item;
+};
+
+// Render session history for a task node
+treeView._renderSessionHistory = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node || !node.sessions) return null;
+
+  var sessionIds = Object.keys(node.sessions);
+  if (sessionIds.length === 0) return null;
+
+  // Sort by start_time descending
+  sessionIds.sort(function(a, b) {
+    var sa = node.sessions[a].start_time || 0;
+    var sb = node.sessions[b].start_time || 0;
+    return sb - sa;
+  });
+
+  var section = document.createElement('div');
+  section.className = 'node-view-sessions';
+
+  var toggle = document.createElement('div');
+  toggle.className = 'node-view-sessions-toggle';
+  var caret = document.createElement('i');
+  caret.className = 'fa fa-caret-right node-view-sessions-caret';
+  toggle.appendChild(caret);
+  toggle.appendChild(document.createTextNode(' Sessions (' + sessionIds.length + ')'));
+  section.appendChild(toggle);
+
+  var content = document.createElement('div');
+  content.className = 'node-view-sessions-content';
+  content.style.display = 'none';
+
+  toggle.onclick = function() {
+    var open = content.style.display !== 'none';
+    content.style.display = open ? 'none' : 'block';
+    caret.className = 'fa ' + (open ? 'fa-caret-right' : 'fa-caret-down') + ' node-view-sessions-caret';
+  };
+
+  for (var i = 0; i < sessionIds.length; i++) {
+    var sid = sessionIds[i];
+    var sess = node.sessions[sid];
+    var row = document.createElement('div');
+    row.className = 'node-view-session-row';
+    row.setAttribute('data-session-id', sid);
+
+    var dateStr = sess.start_time ? moment(sess.start_time).format('MMM D, YYYY') : '';
+    var startStr = sess.start_time ? moment(sess.start_time).format('h:mm a') : '';
+    var endStr = sess.end_time ? moment(sess.end_time).format('h:mm a') : '';
+    var dur = (sess.start_time && sess.end_time) ? moment(sess.end_time).diff(moment(sess.start_time), 'seconds') : 0;
+
+    var dateEl = document.createElement('span');
+    dateEl.className = 'session-date';
+    dateEl.textContent = dateStr;
+    row.appendChild(dateEl);
+
+    var timeRange = document.createElement('span');
+    timeRange.className = 'session-time-range';
+    timeRange.textContent = startStr + ' \u2013 ' + endStr;
+    row.appendChild(timeRange);
+
+    var durEl = document.createElement('span');
+    durEl.className = 'session-duration';
+    durEl.textContent = prettyTime(dur);
+    row.appendChild(durEl);
+
+    // Double-click to edit session
+    (function(sessionId) {
+      row.ondblclick = function() {
+        showGeneralEditForm('session', sessionId);
+      };
+    })(sid);
+
+    content.appendChild(row);
+
+    // Session notes
+    if (sess.notes) {
+      var noteEl = document.createElement('div');
+      noteEl.className = 'session-notes';
+      noteEl.textContent = sess.notes;
+      content.appendChild(noteEl);
+    }
+  }
+
+  section.appendChild(content);
+  return section;
+};
+
+// Render the node view header (breadcrumb, title, metadata, notes, sessions)
+treeView._renderNodeViewHeader = function(container, nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  var isTask = nodeIsTask(nodeId);
+  var header = document.createElement('div');
+  header.className = 'node-view-header';
+
+  // Breadcrumb
+  var breadcrumb = document.createElement('div');
+  breadcrumb.className = 'node-view-breadcrumb';
+
+  var allLink = document.createElement('span');
+  allLink.className = 'breadcrumb-item';
+  allLink.textContent = 'All';
+  allLink.onclick = function() {
+    treeView.viewingNodeId = null;
+    treeView.update();
+  };
+  breadcrumb.appendChild(allLink);
+
+  var path = getNodePath(nodeId);
+  for (var i = 0; i < path.length; i++) {
+    var sep = document.createElement('span');
+    sep.className = 'breadcrumb-sep';
+    sep.textContent = '\u203A';
+    breadcrumb.appendChild(sep);
+
+    if (i < path.length - 1) {
+      // Ancestor — clickable
+      (function(ancestorId) {
+        var link = document.createElement('span');
+        link.className = 'breadcrumb-item';
+        link.textContent = path[i].name || '(unnamed)';
+        link.onclick = function() {
+          treeView.viewingNodeId = ancestorId;
+          treeView.update();
+        };
+        breadcrumb.appendChild(link);
+      })(path[i].id);
+    } else {
+      // Current node — bold, not clickable
+      var current = document.createElement('span');
+      current.style.fontWeight = 'bold';
+      current.textContent = node.name || '(unnamed)';
+      breadcrumb.appendChild(current);
+    }
+  }
+  header.appendChild(breadcrumb);
+
+  // Title
+  var title = document.createElement('h2');
+  title.className = 'node-view-title';
+  title.textContent = node.name || '(unnamed)';
+  header.appendChild(title);
+
+  // Metadata grid
+  var meta = document.createElement('div');
+  meta.className = 'node-view-meta';
+
+  var time = calculateNodeTime(nodeId);
+  if (time > 0) {
+    meta.appendChild(treeView._metaItem('Time logged', prettyTime(time)));
+  }
+
+  if (isTask) {
+    if (node.estimate && node.estimate > 0) {
+      meta.appendChild(treeView._metaItem('Estimate', prettyTime(node.estimate)));
+    }
+    if (node.status && node.status !== 'new') {
+      var statusLabels = {inProcess: 'In Process', completed: 'Completed', onHold: 'On Hold'};
+      meta.appendChild(treeView._metaItem('Status', statusLabels[node.status] || node.status));
+    }
+    if (node.priority && node.priority !== '3') {
+      var priorityLabels = {'1': '1 (Highest)', '2': '2 (High)', '4': '4 (Low)', '5': '5 (Lowest)'};
+      meta.appendChild(treeView._metaItem('Priority', priorityLabels[node.priority] || node.priority));
+    }
+    if (node.due) {
+      meta.appendChild(treeView._metaItem('Due', moment(node.due).format('MMM D, YYYY')));
+    }
+    if (node.starred === '1') {
+      var starEl = document.createElement('span');
+      starEl.innerHTML = '<i class="fa fa-star" style="color:#f5a623"></i> Yes';
+      meta.appendChild(treeView._metaItem('Starred', starEl));
+    }
+    if (node.billable === '0') {
+      meta.appendChild(treeView._metaItem('Billable', 'No'));
+    }
+  } else {
+    // Folder metadata
+    var childCount = (node.childOrder || []).length;
+    meta.appendChild(treeView._metaItem('Children', String(childCount)));
+
+    // Count total descendant tasks
+    var taskCount = 0;
+    var totalEstimate = 0;
+    function countDescendants(nid) {
+      var n = getNode(nid);
+      if (!n) return;
+      if (nodeIsTask(nid)) {
+        taskCount++;
+        totalEstimate += (n.estimate || 0);
+      }
+      var co = n.childOrder || [];
+      for (var j = 0; j < co.length; j++) {
+        countDescendants(co[j]);
+      }
+    }
+    var co = node.childOrder || [];
+    for (var j = 0; j < co.length; j++) {
+      countDescendants(co[j]);
+    }
+    if (taskCount > 0) {
+      meta.appendChild(treeView._metaItem('Total tasks', String(taskCount)));
+    }
+    if (totalEstimate > 0) {
+      meta.appendChild(treeView._metaItem('Total estimate', prettyTime(totalEstimate)));
+    }
+  }
+
+  if (meta.children.length > 0) {
+    header.appendChild(meta);
+  }
+
+  // Notes section (collapsible)
+  var notesSection = document.createElement('div');
+  notesSection.className = 'node-view-notes-section';
+
+  var hasNotes = node.notes && node.notes.trim();
+  var notesToggle = document.createElement('div');
+  notesToggle.className = 'node-view-notes-toggle';
+  var notesCaret = document.createElement('i');
+  notesCaret.className = 'fa ' + (hasNotes ? 'fa-caret-down' : 'fa-caret-right') + ' node-view-notes-caret';
+  notesToggle.appendChild(notesCaret);
+  notesToggle.appendChild(document.createTextNode(' Notes'));
+  notesSection.appendChild(notesToggle);
+
+  var notesContent = document.createElement('div');
+  notesContent.className = 'node-view-notes-content';
+  notesContent.style.display = hasNotes ? 'block' : 'none';
+
+  var notesTextarea = document.createElement('textarea');
+  notesTextarea.className = 'node-view-notes-textarea';
+  notesTextarea.value = node.notes || '';
+  notesTextarea.placeholder = 'Add notes...';
+  notesTextarea.oninput = function() {
+    this.style.height = 'auto';
+    this.style.height = this.scrollHeight + 'px';
+  };
+  notesTextarea.onblur = function() {
+    var val = this.value;
+    if (val !== (node.notes || '')) {
+      node.notes = val;
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    }
+  };
+  notesContent.appendChild(notesTextarea);
+  notesSection.appendChild(notesContent);
+
+  notesToggle.onclick = function() {
+    var open = notesContent.style.display !== 'none';
+    notesContent.style.display = open ? 'none' : 'block';
+    notesCaret.className = 'fa ' + (open ? 'fa-caret-right' : 'fa-caret-down') + ' node-view-notes-caret';
+    if (!open) {
+      // Auto-size textarea when opening
+      notesTextarea.style.height = 'auto';
+      notesTextarea.style.height = notesTextarea.scrollHeight + 'px';
+    }
+  };
+
+  header.appendChild(notesSection);
+
+  // Session history (tasks only)
+  if (isTask) {
+    var sessSection = treeView._renderSessionHistory(nodeId);
+    if (sessSection) {
+      header.appendChild(sessSection);
+    }
+  }
+
+  // Children separator
+  var sep = document.createElement('div');
+  sep.className = 'node-view-children-header';
+  sep.textContent = isTask ? '' : 'Children';
+  header.appendChild(sep);
+
+  container.appendChild(header);
+};
 
 /**
  * Check if a node is a "task" (leaf node with no children)
@@ -1053,6 +1349,59 @@ treeView._doUpdate = function() {
   treeView._isRendering = true;
   container.innerHTML = '';
 
+  // Node view mode: drill-down into a single node
+  if (treeView.viewingNodeId) {
+    var viewNode = getNode(treeView.viewingNodeId);
+    if (!viewNode) {
+      // Node was deleted, fall back to full tree
+      treeView.viewingNodeId = null;
+    } else {
+      container.onclick = null;
+      treeView._renderNodeViewHeader(container, treeView.viewingNodeId);
+
+      var children = viewNode.childOrder || [];
+      if (children.length === 0) {
+        var empty = document.createElement('div');
+        empty.className = 'tree-empty';
+        empty.textContent = 'Click here to add a child item';
+        empty.onclick = function() { treeView.addFirstChild(treeView.viewingNodeId); };
+        container.appendChild(empty);
+      } else {
+        for (var i = 0; i < children.length; i++) {
+          treeView.renderNode(container, children[i], 0);
+        }
+      }
+
+      treeView._isRendering = false;
+
+      // Auto-size all textareas
+      var textareas = container.querySelectorAll('.tree-text');
+      for (var i = 0; i < textareas.length; i++) {
+        textareas[i].style.height = 'auto';
+        textareas[i].style.height = textareas[i].scrollHeight + 'px';
+      }
+
+      // Auto-size notes textarea
+      var notesTA = container.querySelector('.node-view-notes-textarea');
+      if (notesTA) {
+        notesTA.style.height = 'auto';
+        notesTA.style.height = notesTA.scrollHeight + 'px';
+      }
+
+      // Restore focus
+      if (treeView.focusedNodeId) {
+        var input = container.querySelector('[data-node-id="' + treeView.focusedNodeId + '"] .tree-text');
+        if (input) {
+          input.focus();
+          var len = input.value.length;
+          input.setSelectionRange(len, len);
+        }
+      }
+      return;
+    }
+  }
+
+  // Full tree mode (default)
   // Empty tree case
   if ((ttData.rootOrder || []).length === 0) {
     container.innerHTML = '<div class="tree-empty">Click here to add your first item<div class="tree-empty-hint">Press Enter to add more, Tab to indent</div></div>';
@@ -1121,6 +1470,17 @@ treeView.renderNode = function(container, nodeId, depth) {
   row.className = 'tree-row' + headingClass + (isCompleted ? ' completed' : '') + (isProvisional ? ' tree-row-provisional' : '');
   row.setAttribute('data-node-id', nodeId);
   row.setAttribute('data-depth', depth);
+
+  // Double-click to drill into node view
+  if (!isProvisional) {
+    row.ondblclick = function(e) {
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' ||
+          e.target.tagName === 'I' || e.target.className.indexOf('tree-bullet') !== -1) return;
+      e.preventDefault();
+      treeView.viewingNodeId = nodeId;
+      treeView.update();
+    };
+  }
 
   // Bullet/toggle (also serves as drag handle)
   var bullet = document.createElement('span');
@@ -1479,6 +1839,7 @@ treeView.indent = function(nodeId) {
 treeView.outdent = function(nodeId) {
   var node = getNode(nodeId);
   if (!node || !node.parentId) return; // Can't outdent root items
+  if (treeView.viewingNodeId && node.parentId === treeView.viewingNodeId) return;
 
   treeView.finalizeNode(nodeId);
 
@@ -1540,7 +1901,7 @@ treeView.getVisibleNodeIds = function() {
     }
   }
 
-  collect(null);
+  collect(treeView.viewingNodeId);
   return ids;
 };
 
@@ -1695,6 +2056,26 @@ treeView.saveNewTaskFromToday = function() {
   input.value = '';
   emitEvent('task', 'added');
   setFeedback('Task created');
+};
+
+// Add first child to a node (used by empty state in node view)
+treeView.addFirstChild = function(parentId) {
+  var node = createNode(parentId, {type: 'task'}, true);
+  var parent = getNode(parentId);
+  if (parent) parent.collapsed = false;
+  treeView.focusedNodeId = node.id;
+  treeView.update();
+};
+
+// Drill into a node's detail view (called by todayView ondblclick)
+treeView.showEditForm = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+  if (currentView !== treeView) {
+    setView('taskList');
+  }
+  treeView.viewingNodeId = nodeId;
+  treeView.update();
 };
 
 
