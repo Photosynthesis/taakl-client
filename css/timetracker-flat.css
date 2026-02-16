@@ -798,8 +798,10 @@ color: #000;
 .tree-play {
   color: #8bc58b;
   cursor: pointer;
-  font-size: 1.1em;
-  margin-left: 8px;
+  font-size: 24px !important;
+  line-height: 1;
+  margin-left: 0;
+  padding: 0 9px;
   opacity: 0;
   transition: opacity 0.15s;
   flex-shrink: 0;

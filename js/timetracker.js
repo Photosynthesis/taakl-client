@@ -1658,17 +1658,8 @@ treeView.renderNode = function(container, nodeId, depth) {
       row.appendChild(meta);
     }
 
-    // Play button for tasks
+    // Star and play button for tasks
     if (isTask) {
-      var play = document.createElement('i');
-      play.className = 'fa fa-play-circle tree-play';
-      play.onclick = function(e) {
-        e.stopPropagation();
-        treeView.startSession(nodeId);
-      };
-      row.appendChild(play);
-
-      // Star
       var star = document.createElement('i');
       star.className = 'fa fa-star tree-star' + (node.starred === '1' ? ' starred' : '');
       star.onclick = function(e) {
@@ -1676,6 +1667,14 @@ treeView.renderNode = function(container, nodeId, depth) {
         treeView.toggleStar(nodeId);
       };
       row.appendChild(star);
+
+      var play = document.createElement('i');
+      play.className = 'fa fa-play-circle tree-play';
+      play.onclick = function(e) {
+        e.stopPropagation();
+        treeView.startSession(nodeId);
+      };
+      row.appendChild(play);
     }
   }
 
