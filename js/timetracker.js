@@ -1474,7 +1474,7 @@ treeView.renderNode = function(container, nodeId, depth) {
   // Double-click to drill into node view
   if (!isProvisional) {
     row.ondblclick = function(e) {
-      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' ||
+      if (e.target.tagName === 'INPUT' ||
           e.target.tagName === 'I' || e.target.className.indexOf('tree-bullet') !== -1) return;
       e.preventDefault();
       treeView.viewingNodeId = nodeId;
