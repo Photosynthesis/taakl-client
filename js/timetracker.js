@@ -312,6 +312,8 @@ function ttInit(){
 
    });
 
+   resetDailyTasks();
+
    setView('taskList');
 
    if(current_session){
@@ -1947,6 +1949,7 @@ treeView.toggleComplete = function(nodeId, checkbox) {
   var node = getNode(nodeId);
   if (!node) return;
   node.status = checkbox.checked ? 'completed' : 'inProcess';
+  if (checkbox.checked) { recordCompletion(node); } else { undoCompletion(node); }
   ttSave();
   emitEvent('node', 'updated', nodeId);
   if (treeView.hideCompleted) {
@@ -2180,6 +2183,7 @@ function endNodeSession(markComplete) {
 
   if (markComplete) {
     current_node.status = 'completed';
+    recordCompletion(current_node);
     task_complete_feedback = ' <b>Task complete!</b>';
     feedback_class = 'success';
   } else {
@@ -3170,6 +3174,7 @@ todayView.toggleNodeComplete = function(nodeId, checkbox) {
   if (!node) return;
 
   node.status = checkbox.checked ? 'completed' : 'inProcess';
+  if (checkbox.checked) { recordCompletion(node); } else { undoCompletion(node); }
   ttSave();
   todayView.update();
   emitEvent('node', 'updated', nodeId);
@@ -3627,6 +3632,7 @@ function getNodeData(id) {
     data.starred = node.starred;
     data.notes = node.notes;
     data.sessions = node.sessions || {};
+    data.completed_at = node.completed_at || [];
   }
 
   return data;
@@ -3984,6 +3990,7 @@ function upsertNodeLocally(uuid, data, parentUuid) {
   if (data.starred !== undefined) node.starred = data.starred;
   if (data.notes !== undefined) node.notes = data.notes;
   if (data.sessions !== undefined) node.sessions = data.sessions;
+  if (data.completed_at !== undefined) node.completed_at = data.completed_at;
 
   // Handle parent change or new node placement
   var oldParentId = node.parentId;
@@ -4814,6 +4821,41 @@ function getAllTags(){
     }
   }
   return Object.keys(tagSet).sort();
+}
+
+function recordCompletion(node) {
+  if (!Array.isArray(node.completed_at)) node.completed_at = [];
+  node.completed_at.push(new Date().toISOString());
+}
+
+function undoCompletion(node) {
+  if (Array.isArray(node.completed_at) && node.completed_at.length > 0) {
+    node.completed_at.pop();
+  }
+}
+
+function resetDailyTasks() {
+  var logicalDate = moment().subtract(3, 'hours').format('YYYY-MM-DD');
+  var lastReset = localStorage.ttLastDailyReset;
+  if (lastReset === logicalDate) return;
+
+  var activeNodeId = localStorage.ttCurrentNodeId || null;
+  var anyReset = false;
+
+  for (var id in ttData.nodes) {
+    var node = ttData.nodes[id];
+    if (node.type !== 'task') continue;
+    if (node.status !== 'completed') continue;
+    if (id === activeNodeId) continue;
+    if (!taskHasTags(node, ['daily'])) continue;
+
+    node.status = 'new';
+    anyReset = true;
+    synchQueue.add('update', 'node', id, node.parentId);
+  }
+
+  if (anyReset) ttSave();
+  localStorage.ttLastDailyReset = logicalDate;
 }
 
 function gebi(id){
