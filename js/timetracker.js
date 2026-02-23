@@ -1644,6 +1644,27 @@ treeView._doUpdate = function() {
   treeView._isRendering = true;
   container.innerHTML = '';
 
+  // Pre-compute which nodes match or contain matches for search filter
+  treeView._searchMatchIds = null;
+  if (treeView.searchFilter) {
+    var search = treeView.searchFilter.toLowerCase();
+    var matchIds = {};
+    // Walk all nodes; for each match, mark it and all ancestors
+    for (var nid in ttData.nodes) {
+      var n = ttData.nodes[nid];
+      if (n.name && n.name.toLowerCase().indexOf(search) !== -1) {
+        matchIds[nid] = true;
+        var pid = n.parentId;
+        while (pid) {
+          matchIds[pid] = true;
+          var pn = getNode(pid);
+          pid = pn ? pn.parentId : null;
+        }
+      }
+    }
+    treeView._searchMatchIds = matchIds;
+  }
+
   // Node view mode: drill-down into a single node
   if (treeView.viewingNodeId) {
     var viewNode = getNode(treeView.viewingNodeId);
@@ -1747,11 +1768,8 @@ treeView.renderNode = function(container, nodeId, depth) {
       if (!hasChildren) return;
     }
 
-    if (treeView.searchFilter) {
-      var search = treeView.searchFilter.toLowerCase();
-      var matches = node.name.toLowerCase().indexOf(search) !== -1;
-      if (!matches && !hasChildren) return;
-      // For nodes with children, we'll render and let children filter themselves
+    if (treeView._searchMatchIds) {
+      if (!treeView._searchMatchIds[nodeId]) return;
     }
   }
 
@@ -1975,8 +1993,8 @@ treeView.renderNode = function(container, nodeId, depth) {
 
   container.appendChild(row);
 
-  // Render children
-  if (hasChildren && !node.collapsed) {
+  // Render children (force-expand when search filter matches descendants)
+  if (hasChildren && (!node.collapsed || treeView._searchMatchIds)) {
     var childContainer = document.createElement('div');
     childContainer.className = 'tree-children';
 
