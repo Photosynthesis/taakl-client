@@ -8,12 +8,9 @@
     <link rel="stylesheet" href="css/timetracker-flat.css" type="text/css">
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
     <link rel="stylesheet" href="css/pikaday.css">
-    <link rel="stylesheet" href="css/jqtree.css">
 
-    <script type="text/javascript" src="js/jquery-1.6.4.min.js"></script>
     <script type="text/javascript" src="js/moment.min.js"></script>
     <script type="text/javascript" src="js/pikaday.js"></script>
-    <script type="text/javascript" src="js/tree.jquery.js"></script>
     <script type="text/javascript" src="js/Chart.min.js"></script>
     <script type="text/javascript" src="js/plugins.conf.js"></script>
     <script type="text/javascript" src="js/timetracker.js"></script>
@@ -117,8 +114,12 @@
         <div id="today-new-task-form">
           <form method="post" id="today-task-form" action="">
             <div class="glommed-field-div">
-              <input type="text" class="button-end-field" id="today-new-task-input" name="today-new-task-input" placeholder="Add new task" autocomplete="off" /><a href="#void" onClick="treeView.saveNewTaskFromToday(); gebi('today-new-task-input').value='';" class="button field-end-button" id="today-save-new-task-button">Save</a>
+              <div id="today-ac-container">
+                <input type="text" class="button-end-field" id="today-new-task-input" name="today-new-task-input" placeholder="Add new task (/ to choose folder)" autocomplete="off" />
+                <div id="today-folder-dropdown" class="folder-ac-dropdown"></div>
+              </div><a href="#void" onClick="treeView.saveNewTaskFromToday();" class="button field-end-button" id="today-save-new-task-button">Save</a>
             </div>
+            <div id="today-parent-chip" class="parent-chip" style="display:none;"></div>
           </form>
         </div>
 

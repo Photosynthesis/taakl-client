@@ -207,6 +207,291 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Minimal XHR wrapper (replaces $.ajax)
+function ajaxReq(opts) {
+  var xhr = new XMLHttpRequest();
+  var url = opts.url;
+  if (opts.cache === false) {
+    url += (url.indexOf('?') === -1 ? '?' : '&') + '_=' + new Date().getTime();
+  }
+  xhr.open(opts.type || 'GET', url, true);
+  if (opts.contentType) {
+    xhr.setRequestHeader('Content-Type', opts.contentType);
+  }
+  if (opts.headers) {
+    for (var key in opts.headers) {
+      if (opts.headers.hasOwnProperty(key)) {
+        xhr.setRequestHeader(key, opts.headers[key]);
+      }
+    }
+  }
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState !== 4) return;
+    if (xhr.status >= 200 && xhr.status < 300) {
+      var result;
+      try { result = JSON.parse(xhr.responseText); }
+      catch(e) { result = xhr.responseText; }
+      if (opts.success) opts.success(result);
+    } else {
+      if (opts.error) opts.error(xhr, '', xhr.statusText);
+    }
+  };
+  xhr.send(opts.data || null);
+}
+
+/**
+ * Factory: folder autocomplete triggered by "/" in an input field
+ * @param {string} inputId - ID of the text input element
+ * @param {string} dropdownId - ID of the dropdown container element
+ * @param {string} chipId - ID of the parent chip element
+ * @returns {object} - Autocomplete controller with init/reset methods
+ */
+function createFolderAutocomplete(inputId, dropdownId, chipId) {
+  var ac = {
+    selectedParentId: null,
+    slashPosition: -1,
+    items: [],
+    selectedIndex: -1,
+    isOpen: false
+  };
+
+  ac.init = function() {
+    var input = gebi(inputId);
+    if (!input) return;
+
+    input.addEventListener('input', function() {
+      ac.handleInput();
+    });
+
+    input.addEventListener('keydown', function(e) {
+      ac.handleKeydown(e);
+    });
+
+    input.addEventListener('blur', function() {
+      setTimeout(function() { ac.hide(); }, 200);
+    });
+
+    gebi(dropdownId).addEventListener('click', function(e) {
+      var item = e.target.closest('.folder-ac-item');
+      if (!item) return;
+      var idx = parseInt(item.getAttribute('data-index'), 10);
+      ac.selectItem(idx);
+    });
+  };
+
+  ac.handleInput = function() {
+    var input = gebi(inputId);
+    var val = input.value;
+    var cursorPos = input.selectionStart;
+
+    // Scan backward from cursor for a "/" trigger
+    var slashPos = -1;
+    for (var i = cursorPos - 1; i >= 0; i--) {
+      if (val[i] === '/') {
+        // Only trigger if slash is at start or preceded by a space
+        if (i === 0 || val[i - 1] === ' ') {
+          slashPos = i;
+        }
+        break;
+      }
+      // Stop if we hit a space (the search text shouldn't contain spaces before the slash)
+      if (val[i] === ' ') break;
+    }
+
+    if (slashPos === -1) {
+      ac.hide();
+      return;
+    }
+
+    ac.slashPosition = slashPos;
+    var searchText = val.substring(slashPos + 1, cursorPos);
+    var matches = ac.getMatchingFolders(searchText);
+    ac.renderDropdown(matches);
+  };
+
+  ac.handleKeydown = function(e) {
+    if (!ac.isOpen) return;
+
+    if (e.keyCode === 40) { // Down
+      e.preventDefault();
+      if (ac.selectedIndex < ac.items.length - 1) {
+        ac.selectedIndex++;
+        ac.updateSelection();
+      }
+    } else if (e.keyCode === 38) { // Up
+      e.preventDefault();
+      if (ac.selectedIndex > 0) {
+        ac.selectedIndex--;
+        ac.updateSelection();
+      }
+    } else if (e.keyCode === 13 || e.keyCode === 9) { // Enter or Tab
+      if (ac.items.length > 0 && ac.selectedIndex >= 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        ac.selectItem(ac.selectedIndex);
+      }
+    } else if (e.keyCode === 27) { // Escape
+      e.preventDefault();
+      ac.hide();
+    }
+  };
+
+  ac.getMatchingFolders = function(text) {
+    var folders = getAllFolderNodes();
+    var lowerText = text.toLowerCase();
+    var matches = [];
+
+    for (var i = 0; i < folders.length; i++) {
+      var folder = folders[i];
+      if (!folder.name) continue;
+      if (text === '' || folder.name.toLowerCase().indexOf(lowerText) !== -1) {
+        var path = getNodePath(folder.id);
+        var breadcrumb = [];
+        for (var j = 0; j < path.length; j++) {
+          breadcrumb.push(path[j].name || '(untitled)');
+        }
+        matches.push({
+          id: folder.id,
+          name: folder.name,
+          breadcrumb: breadcrumb.join(' > ')
+        });
+      }
+    }
+
+    matches.sort(function(a, b) {
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
+
+    return matches.slice(0, 10);
+  };
+
+  ac.renderDropdown = function(matches) {
+    var dropdown = gebi(dropdownId);
+    if (!dropdown) return;
+
+    ac.items = matches;
+    ac.selectedIndex = matches.length > 0 ? 0 : -1;
+
+    var html = '';
+    if (matches.length === 0) {
+      html = '<div class="folder-ac-empty">No matching folders</div>';
+    } else {
+      for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        var selectedClass = i === 0 ? ' selected' : '';
+        var pathHtml = '';
+        if (m.breadcrumb !== m.name) {
+          pathHtml = '<div class="folder-ac-path">' + escapeHtml(m.breadcrumb) + '</div>';
+        }
+        html += '<div class="folder-ac-item' + selectedClass + '" data-index="' + i + '">' +
+          '<i class="fa fa-folder-o folder-ac-icon"></i>' +
+          '<span class="folder-ac-name">' + escapeHtml(m.name) + '</span>' +
+          pathHtml +
+          '</div>';
+      }
+    }
+
+    dropdown.innerHTML = html;
+    dropdown.style.display = 'block';
+    ac.isOpen = true;
+  };
+
+  ac.updateSelection = function() {
+    var dropdown = gebi(dropdownId);
+    if (!dropdown) return;
+    var items = dropdown.querySelectorAll('.folder-ac-item');
+    for (var i = 0; i < items.length; i++) {
+      if (i === ac.selectedIndex) {
+        items[i].classList.add('selected');
+        // Scroll into view if needed
+        var itemTop = items[i].offsetTop;
+        var itemBottom = itemTop + items[i].offsetHeight;
+        if (itemBottom > dropdown.scrollTop + dropdown.clientHeight) {
+          dropdown.scrollTop = itemBottom - dropdown.clientHeight;
+        } else if (itemTop < dropdown.scrollTop) {
+          dropdown.scrollTop = itemTop;
+        }
+      } else {
+        items[i].classList.remove('selected');
+      }
+    }
+  };
+
+  ac.selectItem = function(index) {
+    if (index < 0 || index >= ac.items.length) return;
+    var item = ac.items[index];
+    var input = gebi(inputId);
+
+    // Remove the /searchText from the input
+    var val = input.value;
+    var cursorPos = input.selectionStart;
+    var before = val.substring(0, ac.slashPosition);
+    var after = val.substring(cursorPos);
+    input.value = (before + after).trim();
+
+    ac.selectedParentId = item.id;
+    ac.renderChip(item.id);
+    ac.hide();
+    input.focus();
+  };
+
+  ac.renderChip = function(nodeId) {
+    var chip = gebi(chipId);
+    if (!chip) return;
+    var path = getNodePath(nodeId);
+    var breadcrumb = [];
+    for (var i = 0; i < path.length; i++) {
+      breadcrumb.push(path[i].name || '(untitled)');
+    }
+    chip.innerHTML = '<i class="fa fa-folder-o"></i> ' +
+      escapeHtml(breadcrumb.join(' > ')) +
+      ' <span class="parent-chip-clear" onclick="todayFolderAc.clearParent()">&times;</span>';
+    chip.style.display = 'inline-block';
+  };
+
+  ac.clearParent = function() {
+    ac.selectedParentId = null;
+    var chip = gebi(chipId);
+    if (chip) {
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    }
+  };
+
+  ac.reset = function() {
+    ac.selectedParentId = null;
+    ac.slashPosition = -1;
+    ac.items = [];
+    ac.selectedIndex = -1;
+    ac.isOpen = false;
+    var chip = gebi(chipId);
+    if (chip) {
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    }
+    var dropdown = gebi(dropdownId);
+    if (dropdown) {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
+    }
+  };
+
+  ac.hide = function() {
+    var dropdown = gebi(dropdownId);
+    if (dropdown) {
+      dropdown.style.display = 'none';
+      dropdown.innerHTML = '';
+    }
+    ac.items = [];
+    ac.selectedIndex = -1;
+    ac.isOpen = false;
+  };
+
+  return ac;
+}
+
+var todayFolderAc = createFolderAutocomplete('today-new-task-input', 'today-folder-dropdown', 'today-parent-chip');
+
 // Load Node HTTP module, if available
 if(typeof require === "function"){
   var http = require('http');
@@ -291,28 +576,34 @@ function ttInit(){
       }
     }
 
-   $("form").bind("keypress", function(e) {
+   var forms = document.getElementsByTagName('form');
+   for (var fi = 0; fi < forms.length; fi++) {
+     forms[fi].addEventListener('keypress', function(e) {
 
-     if (e.keyCode == 13) {
+       if (e.keyCode == 13) {
 
-        dbg(document.activeElement,'Active element');
+          dbg(document.activeElement,'Active element');
 
-        // Tree view inputs
-        if(document.activeElement.id == 'tree-add-input'){
-           treeView.saveNewNode();
-           return false;
-        }
+          // Tree view inputs
+          if(document.activeElement.id == 'tree-add-input'){
+             treeView.saveNewNode();
+             e.preventDefault();
+             return;
+          }
 
-        if(document.activeElement.id == 'today-new-task-input'){
-           treeView.saveNewTaskFromToday();
-        }
+          if(document.activeElement.id == 'today-new-task-input'){
+             treeView.saveNewTaskFromToday();
+          }
 
-        return false;
-     }
+          e.preventDefault();
+       }
 
-   });
+     });
+   }
 
    resetDailyTasks();
+
+   todayFolderAc.init();
 
    setView('taskList');
 
@@ -445,7 +736,7 @@ function incrementCurrentDuration() {
 
 
 function hideFeedback(){
-  $('#feedback').hide();
+  gebi('feedback').style.display = 'none';
 }
 
 function setFeedback(message,type,stayVisible){
@@ -476,7 +767,7 @@ function desktopNotify(message,title,icon) {
 
 function saveUserKey(){
   // Legacy function - kept for compatibility
-  key_val = $("#add-userkey-input").val();
+  key_val = gebi('add-userkey-input').value;
   ttData.userKey = key_val;
   ttSave();
   hideModal();
@@ -511,35 +802,37 @@ function showAuthModal(mode) {
   html += '</div>';
   html += '</div>';
 
-  $("#edit-popup").html(html);
-  $("#modal-bg").show();
-  $("#edit-popup").show();
-  $("#auth-username").focus();
+  gebi('edit-popup').innerHTML = html;
+  gebi('modal-bg').style.display = 'block';
+  gebi('edit-popup').style.display = 'block';
+  gebi('auth-username').focus();
 }
 
 function hideModal() {
-  $("#modal-bg").hide();
-  $("#edit-popup").hide();
-  $("#edit-popup").html('');
+  gebi('modal-bg').style.display = 'none';
+  gebi('edit-popup').style.display = 'none';
+  gebi('edit-popup').innerHTML = '';
 }
 
 function showAuthError(message) {
-  $("#auth-error").text(message).show();
+  var el = gebi('auth-error');
+  el.textContent = message;
+  el.style.display = 'block';
 }
 
 function doLogin() {
-  var username = $("#auth-username").val().trim();
-  var password = $("#auth-password").val();
+  var username = gebi('auth-username').value.trim();
+  var password = gebi('auth-password').value;
 
   if (!username || !password) {
     showAuthError('Please enter username and password');
     return;
   }
 
-  $("#auth-error").hide();
+  gebi('auth-error').style.display = 'none';
   setFeedback('Logging in...', 'notice');
 
-  $.ajax({
+  ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.login,
     type: 'POST',
     contentType: 'application/json',
@@ -572,9 +865,9 @@ function doLogin() {
 }
 
 function doRegister() {
-  var username = $("#auth-username").val().trim();
-  var password = $("#auth-password").val();
-  var email = $("#auth-email").val().trim();
+  var username = gebi('auth-username').value.trim();
+  var password = gebi('auth-password').value;
+  var email = gebi('auth-email').value.trim();
 
   if (!username || !password) {
     showAuthError('Please enter username and password');
@@ -586,13 +879,13 @@ function doRegister() {
     return;
   }
 
-  $("#auth-error").hide();
+  gebi('auth-error').style.display = 'none';
   setFeedback('Creating account...', 'notice');
 
   var data = { username: username, password: password };
   if (email) data.email = email;
 
-  $.ajax({
+  ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.register,
     type: 'POST',
     contentType: 'application/json',
@@ -634,7 +927,7 @@ function doLogout() {
     return;
   }
 
-  $.ajax({
+  ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.logout,
     type: 'POST',
     contentType: 'application/json',
@@ -727,7 +1020,7 @@ function downloadJson(){
 }
 
 function saveJson(){
-   input_json = $("#edit-json-textarea").val();
+   input_json = gebi('edit-json-textarea').value;
 
    try{
       input_data = JSON.parse(input_json);
@@ -739,14 +1032,14 @@ function saveJson(){
    ttData = input_data;
    ttSave();
    setFeedback('JSON data saved.');
-   $("#json-output").hide();
+   gebi('json-output').style.display = 'none';
 }
 
 
 function cancelEditForm(){
-  $('#edit-popup').html('');
-  $('#modal-bg').hide();
-  $('#edit-popup').hide();
+  gebi('edit-popup').innerHTML = '';
+  gebi('modal-bg').style.display = 'none';
+  gebi('edit-popup').style.display = 'none';
 }
 
 
@@ -794,8 +1087,8 @@ function deleteConfirm(msg,yesCallback,noCallback){
   gebi("delete-confirm-message").innerHTML = msg;
   gebi("delete-confirm-yes").onclick = yesCallback;
   gebi("delete-confirm-no").onclick = noCallback;
-  $("#modal-bg").show();
-  $("#delete-confirm").show();
+  gebi('modal-bg').style.display = 'block';
+  gebi('delete-confirm').style.display = 'block';
 
 }
 
@@ -837,7 +1130,7 @@ function showGeneralEditForm(type,id){
 
   edit_element = document.getElementById("edit-popup");
 
-  $("#edit-popup").html("<h3>Edit "+type+"</h3><form>");
+  edit_element.innerHTML = "<h3>Edit "+type+"</h3><form>";
 
   if(type == 'session'){
     properties = getSessionById(id);
@@ -858,7 +1151,7 @@ function showGeneralEditForm(type,id){
     }
 
     if(field.type == "text"){
-         $("#edit-popup").append('<div class="edit-field">'+field.label+' <input type="text" value="'+val+'" id="'+type+'-'+key+'-edit-input"/></div>');
+         edit_element.insertAdjacentHTML('beforeend', '<div class="edit-field">'+field.label+' <input type="text" value="'+val+'" id="'+type+'-'+key+'-edit-input"/></div>');
     }else if(field.type == "select"){
 
       var fieldDiv = document.createElement('div');
@@ -878,24 +1171,24 @@ function showGeneralEditForm(type,id){
       select.value = val;
 
       fieldDiv.appendChild(select);
-      $("#edit-popup").append(fieldDiv);
+      edit_element.appendChild(fieldDiv);
 
     }else if(field.type == "textarea"){
-      $("#edit-popup").append('<div class="edit-field">'+field.label+' <textarea id="'+type+'-'+key+'-edit-input">'+val+'</textarea></div>');
+      edit_element.insertAdjacentHTML('beforeend', '<div class="edit-field">'+field.label+' <textarea id="'+type+'-'+key+'-edit-input">'+val+'</textarea></div>');
     }
 
   }
 
-  $("#edit-popup").append('<div>');
-  $("#edit-popup").append('<a class="button" onClick="saveGeneralEditForm(\''+type+'\',\''+id+'\')">Save</a>');
-  $("#edit-popup").append('<a class="button" onClick="cancelEditForm()">Cancel</a>');
+  edit_element.insertAdjacentHTML('beforeend', '<div>');
+  edit_element.insertAdjacentHTML('beforeend', '<a class="button" onClick="saveGeneralEditForm(\''+type+'\',\''+id+'\')">Save</a>');
+  edit_element.insertAdjacentHTML('beforeend', '<a class="button" onClick="cancelEditForm()">Cancel</a>');
 
   if(type != "settings"){
-    $("#edit-popup").append('<a class="button red" onClick="deleteGeneralFromEditForm(\''+type+'\',\''+id+'\')">Delete Item</a></div></form>');
+    edit_element.insertAdjacentHTML('beforeend', '<a class="button red" onClick="deleteGeneralFromEditForm(\''+type+'\',\''+id+'\')">Delete Item</a></div></form>');
   }
 
-  $("#modal-bg").show();
-  $("#edit-popup").show();
+  gebi('modal-bg').style.display = 'block';
+  edit_element.style.display = 'block';
 
 }
 
@@ -2044,11 +2337,14 @@ treeView.saveNewTaskFromToday = function() {
   if (!input) return;
 
   var name = input.value.trim();
+  // Strip any unresolved /text from the name
+  name = name.replace(/\/\S*/g, '').trim();
   if (!name) return;
 
+  var parentId = todayFolderAc.selectedParentId;
   var parsed = parseEstimateFromInput(name);
 
-  createNode(null, {
+  createNode(parentId, {
     name: parsed.name,
     type: 'task',
     estimate: parsed.estimate,
@@ -2056,8 +2352,15 @@ treeView.saveNewTaskFromToday = function() {
   });
 
   input.value = '';
+  todayFolderAc.reset();
   emitEvent('task', 'added');
-  setFeedback('Task created');
+
+  if (parentId) {
+    var parentNode = getNode(parentId);
+    setFeedback('Task created in ' + (parentNode ? parentNode.name : 'folder'));
+  } else {
+    setFeedback('Task created');
+  }
 };
 
 // Add first child to a node (used by empty state in node view)
@@ -2176,7 +2479,7 @@ function endNodeSession(markComplete) {
   window.removeEventListener('resize', fitDurationText);
 
   current_session.end_time = moment().format("YYYY-MM-DD HH:mm:ss");
-  current_session.notes = $("#session-notes-input").val();
+  current_session.notes = gebi('session-notes-input').value;
 
   var task_complete_feedback = '';
   var feedback_class = 'notice';
@@ -3068,6 +3371,8 @@ todayView.show = function(){
     todayView.update();
   }, 'todayView');
 
+  todayFolderAc.reset();
+
   todayView.update();
 };
 
@@ -3720,7 +4025,7 @@ function synchFromServer() {
   setFeedback('Synching from server...');
   synchIconStatus("synching");
 
-  $.ajax({
+  ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
     type: 'GET',
     cache: false,  // Prevent browser caching of sync data
@@ -3808,7 +4113,7 @@ function synchIncremental() {
     changes: synchQueue.queue
   };
 
-  $.ajax({
+  ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.sync,
     type: 'POST',
     contentType: 'application/json',
@@ -4041,168 +4346,6 @@ function upsertNodeSessionLocally(sessionId, data, nodeId) {
   Object.assign(node.sessions[sessionId], data);
 }
 
-// Legacy callback functions
-function synchSuccessCallback(data) {
-  setFeedback('Data successfully sent to server');
-  synchFromServer();
-}
-
-function synchErrorCallback(error) {
-  setFeedback(error, "error");
-  synchIconStatus("error");
-}
-
-// Legacy node request - updated to use new API
-function nodeRequest(direction, url) {
-  if (!isLoggedIn()) {
-    setFeedback('Please login to sync', 'error');
-    return;
-
-   }
-}
-
-function synchSuccessCallback(data){
-  setFeedback('Data successfully sent to server');
-  document.getElementById('json-output').innerHTML = result;
-  dbg("Success on outbound synch. Starting inbound synch.");
-  synchFromServer();
-}
-
-function synchErrorCallback(error){
-    setFeedback(error,"error");
-    synchIconStatus("error");
-}
-
-function ajaxRequest(data,direction,protocol,host,path){
-
-     $.ajax({
-         url: protocol+host+path,
-         type: 'POST',
-         contentType:'application/json',
-         data: JSON.stringify(data),
-         //dataType:'json',
-         success : function(result){
-            try{
-               server_data = JSON.parse(result);
-            }catch(err){
-               synchErrorCallback('Error parsing data from server.');
-               throw 'JSON parsing exception';
-            }
-            synchSuccessCallback(server_data);
-         },
-         error: function(xhr, ajaxOptions, thrownError){
-            synchErrorCallback('Error synching to server: '+thrownError);
-
-         },
-
-    });
-
-}
-
-function nodeRequest(direction,url){
-
-  if(direction == 'to'){
-    var postData = JSON.stringify(ttData);
-    reqAction = 'synchToServer';
-
-    console.log('[OUTBOUND SYNC - Node] Starting outbound sync to server');
-    console.log('[OUTBOUND SYNC - Node] Data being sent:', ttData);
-    console.log('[OUTBOUND SYNC - Node] Data size (chars):', postData.length);
-
-  }else{
-    reqAction = 'synchFromServer';
-    var postData = '';
-  }
-
-  var options = {
-    hostname: 'www.photosynth.ca',
-    port: 80,
-    path: '/timetracker/synch.php?action='+reqAction+'&key='+ttData.userKey,
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(postData)
-    }
-  };
-
-  if(direction == 'to'){
-    console.log('[OUTBOUND SYNC - Node] URL:', options.hostname + options.path);
-    console.log('[OUTBOUND SYNC - Node] Request options:', options);
-  }
-
-  var request = http.request(options, function(result){
-
-    console.log('[OUTBOUND SYNC - Node] Response status code:', result.statusCode);
-    console.log('[OUTBOUND SYNC - Node] Response headers:', JSON.stringify(result.headers));
-
-    result.setEncoding('utf8');
-
-    var resultData = '';
-
-    result.on('data', function(chunk){
-      resultData += chunk;
-    });
-
-    result.on('end', function(){
-      if(direction == 'to'){
-        console.log('[OUTBOUND SYNC - Node] Response complete');
-        console.log('[OUTBOUND SYNC - Node] Raw server response:', resultData);
-        console.log('[OUTBOUND SYNC - Node] Response length:', resultData.length);
-      }
-
-      if(result.statusCode == 200){
-
-         try{
-           server_data = JSON.parse(resultData);
-           if(direction == 'to'){
-             console.log('[OUTBOUND SYNC - Node] Parsed response:', server_data);
-           }
-         }catch(err){
-           console.log('[OUTBOUND SYNC - Node] JSON parse error:', err);
-           console.log('[OUTBOUND SYNC - Node] Raw data that failed to parse:', resultData);
-           setFeedback('Error parsing data from server. Error:'+err,'error');
-           throw 'JSON parsing exception';
-           synchIconStatus("error");
-         }
-
-         if(direction == 'from'){
-             server_data.userKey = ttData.userKey;
-             ttData = server_data;
-             ttSave();
-
-             setFeedback('Data successfully received from server.');
-             synchIconStatus("done");
-             emitEvent('server','synch');
-
-        }else if(direction == 'to'){
-             console.log('[OUTBOUND SYNC - Node] Success! updateCount:', server_data.updateCount, 'insertCount:', server_data.insertCount);
-             setFeedback('Server synch complete. '+server_data.updateCount+" records updated, "+server_data.insertCount+" new records added");
-             synchFromServer();
-        }
-
-      }else{
-        console.log('[OUTBOUND SYNC - Node] Error! HTTP status:', result.statusCode);
-        console.log('[OUTBOUND SYNC - Node] Error response body:', resultData);
-        setFeedback('Server synch failed! Status:'+result.statusCode,'error',true);
-        synchIconStatus("error");
-      }
-
-
-    });
-
-  });
-
-  request.on('error', function(e){
-    console.log('[OUTBOUND SYNC - Node] Request error:', e.message);
-    console.log('[OUTBOUND SYNC - Node] Full error object:', e);
-    setFeedback('Error synching to server: '+e.message);
-    synchIconStatus("error");
-  });
-
-
-  request.write(postData);
-  request.end();
-}
 
 
 /* ######################### Data Handling Functions ######################### */
@@ -4657,6 +4800,23 @@ function getAllTaskNodes() {
   }
 
   return tasks;
+}
+
+/**
+ * Get all folder nodes (nodes with children or type === 'folder')
+ * @returns {array} - Array of all folder nodes
+ */
+function getAllFolderNodes() {
+  var folders = [];
+  if (!ttData.nodes) return folders;
+  for (var id in ttData.nodes) {
+    var node = ttData.nodes[id];
+    if (!node) continue;
+    if ((node.childOrder && node.childOrder.length > 0) || node.type === 'folder') {
+      folders.push(node);
+    }
+  }
+  return folders;
 }
 
 function ttSave(){
