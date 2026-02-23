@@ -21,8 +21,7 @@ There are no tests, no linter, and no CI pipeline. All testing is manual via the
 
 ## Technology Stack
 
-- **Vanilla ES5 JavaScript** — no modules, no transpilation, globals on `window`
-- **jQuery 1.6.4** — DOM manipulation
+- **Vanilla ES5 JavaScript** — no modules, no transpilation, no jQuery, globals on `window`
 - **Moment.js** — date/time formatting
 - **Pikaday** — date picker
 - **Chart.js v2.1.6** — bar charts in the Review view
@@ -99,7 +98,8 @@ Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (ac
 - ES5 style: `var`, `function`, no arrow functions, no template literals
 - Global namespace — all view objects, helpers, and state are window-level variables
 - Inline `onClick` handlers in HTML
-- Direct DOM manipulation with `document.createElement()` and jQuery
+- Direct DOM manipulation with `document.createElement()`, `gebi()` (getElementById shorthand), `insertAdjacentHTML()`, and `addEventListener()`
+- AJAX via `ajaxReq()` helper (thin XMLHttpRequest wrapper matching $.ajax option shape)
 - camelCase for functions and variables
 - UUIDs generated client-side for node and session IDs
 
