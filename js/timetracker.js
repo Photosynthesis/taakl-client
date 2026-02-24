@@ -1304,6 +1304,8 @@ treeView.viewingNodeId = null; // null = full tree, set = node detail view
 treeView.originalValues = {}; // Store original values for change detection
 treeView.updateScheduled = false; // Prevent redundant updates
 treeView._isRendering = false; // True during DOM rebuild (suppresses blur side-effects)
+treeView.recentFilter = false;   // whether Recent filter is active
+treeView.recentPreset = 'today'; // which preset is selected
 
 // Helper: create a metadata label/value pair element
 treeView._metaItem = function(label, value) {
@@ -1619,6 +1621,15 @@ treeView.show = function() {
     treeView.update();
   }, 'treeView');
 
+  var treeDateRange = gebi('tree-date-range');
+  if (treeDateRange) {
+    treeDateRange.onclick = function(e) {
+      if (e.target.classList.contains('range-btn')) {
+        treeView.setRecentPreset(e.target.getAttribute('data-preset'));
+      }
+    };
+  }
+
   treeView.update();
 };
 
@@ -1663,6 +1674,28 @@ treeView._doUpdate = function() {
       }
     }
     treeView._searchMatchIds = matchIds;
+  }
+
+  // Pre-compute which nodes match the Recent date filter
+  treeView._recentMatchIds = null;
+  if (treeView.recentFilter) {
+    var range = analyze.getDateRange(treeView.recentPreset);
+    var startBound = range.start + 'T00:00:00';
+    var endBound = range.end + 'T23:59:59';
+    var recentIds = {};
+    for (var nid in ttData.nodes) {
+      var cd = ttData.nodes[nid].creation_date;
+      if (cd && cd >= startBound && cd <= endBound) {
+        recentIds[nid] = true;
+        var pid = ttData.nodes[nid].parentId;
+        while (pid) {
+          recentIds[pid] = true;
+          var pn = getNode(pid);
+          pid = pn ? pn.parentId : null;
+        }
+      }
+    }
+    treeView._recentMatchIds = recentIds;
   }
 
   // Node view mode: drill-down into a single node
@@ -1770,6 +1803,10 @@ treeView.renderNode = function(container, nodeId, depth) {
 
     if (treeView._searchMatchIds) {
       if (!treeView._searchMatchIds[nodeId]) return;
+    }
+
+    if (treeView._recentMatchIds) {
+      if (!treeView._recentMatchIds[nodeId]) return;
     }
   }
 
@@ -1994,7 +2031,7 @@ treeView.renderNode = function(container, nodeId, depth) {
   container.appendChild(row);
 
   // Render children (force-expand when search filter matches descendants)
-  if (hasChildren && (!node.collapsed || treeView._searchMatchIds)) {
+  if (hasChildren && (!node.collapsed || treeView._searchMatchIds || treeView._recentMatchIds)) {
     var childContainer = document.createElement('div');
     childContainer.className = 'tree-children';
 
@@ -2346,6 +2383,29 @@ treeView.filterBySearch = function() {
 
 treeView.toggleHideCompleted = function() {
   treeView.hideCompleted = gebi('tree-hide-completed').checked;
+  treeView.update();
+};
+
+treeView.toggleRecent = function() {
+  treeView.recentFilter = !treeView.recentFilter;
+  var btn = gebi('tree-recent-btn');
+  var bar = gebi('tree-date-range');
+  if (treeView.recentFilter) {
+    btn.classList.add('active');
+    bar.style.display = 'flex';
+  } else {
+    btn.classList.remove('active');
+    bar.style.display = 'none';
+  }
+  treeView.update();
+};
+
+treeView.setRecentPreset = function(preset) {
+  treeView.recentPreset = preset;
+  var buttons = document.querySelectorAll('#tree-date-range .range-btn');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].classList.toggle('active', buttons[i].getAttribute('data-preset') === preset);
+  }
   treeView.update();
 };
 
@@ -3942,7 +4002,8 @@ function getNodeData(id) {
     type: node.type,
     parentId: node.parentId,
     childOrder: node.childOrder || [],
-    collapsed: node.collapsed || false
+    collapsed: node.collapsed || false,
+    creation_date: node.creation_date || null
   };
 
   // Include task-specific fields
@@ -4558,7 +4619,8 @@ function createNode(parentId, data, isProvisional) {
     type: data.type || 'task',
     parentId: parentId,
     childOrder: [],
-    collapsed: false
+    collapsed: false,
+    creation_date: new Date().toISOString()
   };
 
   // Mark as provisional if specified

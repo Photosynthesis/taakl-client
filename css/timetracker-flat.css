@@ -636,6 +636,93 @@ color: #000;
   opacity: 0.4;
 }
 
+/* Today view folder autocomplete */
+
+#today-ac-container {
+  position: relative;
+  display: inline-block;
+  width: 85%;
+}
+
+#today-ac-container input.button-end-field {
+  width: 100%;
+}
+
+.folder-ac-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 500;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-top: none;
+  border-radius: 0 0 5px 5px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.folder-ac-item {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.folder-ac-item:hover,
+.folder-ac-item.selected {
+  background: #eef4ff;
+}
+
+.folder-ac-icon {
+  margin-right: 8px;
+  color: #999;
+}
+
+.folder-ac-name {
+  font-weight: bold;
+}
+
+.folder-ac-path {
+  font-size: 0.8em;
+  color: #999;
+  margin-top: 2px;
+  margin-left: 22px;
+}
+
+.folder-ac-empty {
+  padding: 10px 12px;
+  color: #999;
+  font-style: italic;
+}
+
+.parent-chip {
+  display: inline-block;
+  margin: 6px 0 0 0;
+  padding: 4px 10px;
+  background: #eef4ff;
+  border: 1px solid #cce0ff;
+  border-radius: 12px;
+  font-size: 0.85em;
+  color: #555;
+}
+
+.parent-chip i {
+  margin-right: 4px;
+  color: #999;
+}
+
+.parent-chip-clear {
+  margin-left: 6px;
+  cursor: pointer;
+  color: #999;
+  font-weight: bold;
+}
+
+.parent-chip-clear:hover {
+  color: #333;
+}
+
 /* ###################### TREE VIEW STYLES (Outliner) ###################### */
 
 /* Minimal controls bar */
@@ -665,6 +752,14 @@ color: #000;
   color: #888;
   cursor: pointer;
   user-select: none;
+}
+
+#tree-date-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 0 0 5px;
 }
 
 /* Tree container */

@@ -66,6 +66,14 @@
         <div id="tree-controls">
           <input type="text" id="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
           <label class="tree-filter-label"><input type="checkbox" id="tree-hide-completed" checked onchange="treeView.toggleHideCompleted()" /> Hide done</label>
+          <button class="range-btn" id="tree-recent-btn" onclick="treeView.toggleRecent()">Recent</button>
+        </div>
+        <div id="tree-date-range" style="display: none;">
+          <button class="range-btn active" data-preset="today">Today</button>
+          <button class="range-btn" data-preset="yesterday">Yesterday</button>
+          <button class="range-btn" data-preset="week">This Week</button>
+          <button class="range-btn" data-preset="lastweek">Last Week</button>
+          <button class="range-btn" data-preset="month">This Month</button>
         </div>
 
         <!-- Tree container - outliner style -->
