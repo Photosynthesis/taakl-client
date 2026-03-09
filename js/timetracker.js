@@ -527,6 +527,12 @@ function initFreshData() {
 }
 
 function ttInit(){
+  nativeBridge.init(function() {
+    ttInitCore();
+  });
+}
+
+function ttInitCore(){
 
     feedbackElement = document.getElementById('feedback');
 
@@ -844,6 +850,7 @@ function doLogin() {
         ttData.userKey = result.user.uuid;
         ttData.userName = result.user.username;
         ttSave();
+        if (nativeBridge.ready) nativeBridge.persist();
         setFeedback('Logged in successfully');
         hideModal();
         // Sync from server after login
@@ -897,6 +904,7 @@ function doRegister() {
         ttData.userKey = result.user.uuid;
         ttData.userName = result.user.username;
         ttSave();
+        if (nativeBridge.ready) nativeBridge.persist();
         setFeedback('Account created successfully');
         hideModal();
         ttInit();
@@ -937,6 +945,7 @@ function doLogout() {
       delete localStorage.authToken;
       ttData.userName = '';
       ttSave();
+      if (nativeBridge.ready) nativeBridge.persist();
       setFeedback('Logged out successfully');
       updateAuthUI();
     },
@@ -946,6 +955,7 @@ function doLogout() {
       delete localStorage.authToken;
       ttData.userName = '';
       ttSave();
+      if (nativeBridge.ready) nativeBridge.persist();
       setFeedback('Logged out');
       updateAuthUI();
     }
@@ -976,6 +986,7 @@ function deleteLocalStorage(){
     delete localStorage.ttData;
     delete localStorage.ttSessionId;
     delete localStorage.ttCurrentNodeId;
+    if (nativeBridge.ready) nativeBridge.clear();
     setFeedback('LocalStorage deleted. Refresh to see changes.');
   }
 }
@@ -1006,14 +1017,28 @@ function downloadJson(){
   dbg("Download JSON called");
 
   var json = JSON.stringify(ttData,null,'  ');
+  var filename = "Timetracker-Data-"+moment().format("YYYY-MM-DD_HH-mm-ss")+".json";
+
+  // Native save dialog when running inside Tauri
+  if (window.__TAURI__) {
+    window.__TAURI__.dialog.save({
+      defaultPath: filename,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    }).then(function(path) {
+      if (path) {
+        window.__TAURI__.fs.writeTextFile(path, json);
+      }
+    });
+    return;
+  }
+
+  // Browser fallback
   var blob = new Blob([json], {type: "application/json"});
   var url  = URL.createObjectURL(blob);
 
-
   var link = document.createElement('a');
   link.href = url;
-  //link.href = "data:application/json;charset=utf-8,'"+JSON.stringify(ttData,null,'  ')+"'";
-  link.download = "Timetracker-Data-"+moment().format("YYYY-MM-DD_HH-mm-ss")+".json";
+  link.download = filename;
   gebi('json-output').appendChild(link);
   link.click();
   link.parentNode.removeChild(link);
@@ -2494,6 +2519,7 @@ function startNodeSession() {
   // Save current node ID
   localStorage.ttCurrentNodeId = current_node.id;
   localStorage.ttSessionId = current_session.id;
+  if (nativeBridge.ready) nativeBridge.persist();
 
   counterId = setInterval(incrementCurrentDuration, 1000);
   showNodeInSession();
@@ -2609,6 +2635,7 @@ function endNodeSession(markComplete) {
 
   current_session = '';
   delete localStorage.ttSessionId;
+  if (nativeBridge.ready) nativeBridge.persist();
 
   console.log('[SESSION END] After clearing current_session, sessions still in ttData?',
     ttData.nodes[current_node.id].sessions[pastSessionId]);
@@ -3468,12 +3495,17 @@ todayView.filter = function(){
 
   var allTasks = getAllTaskNodes();
 
+  var today = moment().subtract(3, 'hours').format('YYYY-MM-DD');
+
   for (var i = 0; i < allTasks.length; i++) {
     var task = allTasks[i];
 
-    // Skip completed tasks
+    // Skip completed tasks unless completed today
     if (task.status === 'completed') {
-      continue;
+      var ca = task.completed_at;
+      if (!Array.isArray(ca) || ca.length === 0) continue;
+      var lastDone = moment(ca[ca.length - 1]).subtract(3, 'hours').format('YYYY-MM-DD');
+      if (lastDone !== today) continue;
     }
 
     // Add metadata for display
@@ -3520,7 +3552,7 @@ todayView.filter = function(){
 
 todayView.createTaskElement = function(task){
   var taskDiv = document.createElement("div");
-  taskDiv.className = "today-task-item";
+  taskDiv.className = "today-task-item" + (task.status === "completed" ? " today-task-completed" : "");
   taskDiv.setAttribute("data-task-id", task.id);
 
   // Checkbox for completion
@@ -3573,6 +3605,31 @@ todayView.toggleNodeStar = function(nodeId) {
   emitEvent('node', 'updated', nodeId);
 };
 
+todayView.getSectionTotals = function(tasks) {
+  var estimate = 0;
+  var logged = 0;
+  for (var i = 0; i < tasks.length; i++) {
+    if (tasks[i].status !== 'completed' && tasks[i].estimate > 0) {
+      estimate += tasks[i].estimate;
+    }
+    if (tasks[i].time > 0) {
+      logged += tasks[i].time;
+    }
+  }
+  return { estimate: estimate, logged: logged };
+};
+
+todayView.formatSectionTotals = function(totals) {
+  var parts = [];
+  if (totals.estimate > 0) {
+    parts.push("est " + prettyTime(totals.estimate));
+  }
+  if (totals.logged > 0) {
+    parts.push("logged " + prettyTime(totals.logged));
+  }
+  return parts.join(" | ");
+};
+
 todayView.refresh = function(){
   var morningContainer = gebi("today-morning-tasks");
   var starredContainer = gebi("today-starred-tasks");
@@ -3604,6 +3661,14 @@ todayView.refresh = function(){
     eveningContainer.appendChild(todayView.createTaskElement(task));
   });
 
+  // Update section totals
+  var morningTotals = todayView.getSectionTotals(todayView.morningTasks);
+  gebi("today-morning-totals").innerHTML = todayView.formatSectionTotals(morningTotals);
+  var starredTotals = todayView.getSectionTotals(todayView.starredTasks);
+  gebi("today-starred-totals").innerHTML = todayView.formatSectionTotals(starredTotals);
+  var eveningTotals = todayView.getSectionTotals(todayView.eveningTasks);
+  gebi("today-evening-totals").innerHTML = todayView.formatSectionTotals(eveningTotals);
+
   // Show/hide sections based on content
   gebi("today-morning-section").style.display =
     todayView.morningTasks.length > 0 ? "block" : "none";
@@ -3630,6 +3695,7 @@ todayView.getStarredOrder = function() {
 todayView.saveStarredOrder = function() {
   var order = todayView.starredTasks.map(function(t) { return t.id; });
   localStorage.todayStarredOrder = JSON.stringify(order);
+  if (nativeBridge.ready) nativeBridge.persist();
 };
 
 todayView.applyStarredOrder = function() {
@@ -4162,6 +4228,7 @@ function synchFromServer() {
         setFeedback('Session expired. Please login again.', 'error');
         authToken = null;
         delete localStorage.authToken;
+        if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
         setFeedback('Error synching from server: ' + thrownError, 'error');
@@ -4238,6 +4305,7 @@ function synchIncremental() {
         setFeedback('Session expired. Please login again.', 'error');
         authToken = null;
         delete localStorage.authToken;
+        if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
         setFeedback('Sync error: ' + thrownError, 'error');
@@ -4901,6 +4969,7 @@ function getAllFolderNodes() {
 
 function ttSave(){
   localStorage.ttData = JSON.stringify(ttData);
+  if (nativeBridge.ready) nativeBridge.persist();
 }
 
 
@@ -5096,6 +5165,7 @@ function resetDailyTasks() {
 
   if (anyReset) ttSave();
   localStorage.ttLastDailyReset = logicalDate;
+  if (nativeBridge.ready) nativeBridge.persist();
 }
 
 function gebi(id){

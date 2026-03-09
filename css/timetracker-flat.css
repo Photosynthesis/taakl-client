@@ -5,7 +5,8 @@ body{
   -moz-box-sizing: border-box;    /* Firefox, other Gecko         */
   box-sizing: border-box;
   background-color: #f7f7f7;
-
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 div, a, input, select{
   box-sizing: border-box;
@@ -634,6 +635,22 @@ color: #000;
 
 .today-task-item.today-dragging {
   opacity: 0.4;
+}
+
+.today-task-completed .today-task-main {
+  text-decoration: line-through;
+  color: #bbb;
+}
+
+.today-task-completed .today-task-actions .fa-play-circle {
+  color: #ccc !important;
+}
+
+.today-section-totals {
+  float: right;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: #999;
 }
 
 /* Today view folder autocomplete */
