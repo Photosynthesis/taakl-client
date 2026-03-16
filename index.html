@@ -15,6 +15,7 @@
     <script type="text/javascript" src="js/plugins.conf.js"></script>
     <script type="text/javascript" src="js/timetracker.js"></script>
     <script type="text/javascript" src="js/tauri-bridge.js"></script>
+    <script type="text/javascript" src="js/aida-chat.js"></script>
 
     <title>Taakl</title>
     <style>
@@ -47,6 +48,8 @@
 
         <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i> <span>Review</span></a>
 
+        <a href="javascript:void(0)" class="view-switch" id="assistant-button" title="Assistant" onClick="setView('assistantView')"><i class="fa fa-comments fa-lg"></i> <span>Assistant</span></a>
+
         <a href="#void" class="view-switch" onClick="setView('todayView')"><i class="fa fa-clock-o fa-lg"></i> <span>Do</span></a>
 
         <a href="#void" class="view-switch" onClick="setView('taskList')"><i class="fa fa-list fa-lg"></i> <span>Plan</span></a>
@@ -60,6 +63,7 @@
       </div>
       <div class="clearfix"></div>
 
+      <div id="view-area">
       <!-- TaskList / Tree View -->
       <div id="taskList-view" class="view-container" style="display: none">
 
@@ -108,6 +112,21 @@
 
           <a href="#void" onClick="synchToServer()" class="button">Synch with server</a>
           <a href="#void" onClick="deleteLocalStorage()" class="button">Delete LS data</a>
+
+          <div id="aida-settings-section" class="settings-section" style="margin-top: 2em; padding-top: 1em; border-top: 1px solid #e0e0e0;">
+            <h4 style="color: #666; margin-bottom: 1em;">AIDA Assistant</h4>
+            <div class="settings-item">
+              <div class="settings-label">API URL</div>
+              <div class="settings-input"><input type="text" id="aida-settings-url" placeholder="https://aida.taakl.com" /></div>
+              <div class="clearfix"></div>
+            </div>
+            <div class="settings-item">
+              <div class="settings-label">API Key</div>
+              <div class="settings-input"><input type="password" id="aida-settings-key" placeholder="API key" /></div>
+              <div class="clearfix"></div>
+            </div>
+            <a href="#void" onClick="aidaChat.saveSettings()" class="button">Save AIDA Settings</a>
+          </div>
 
           <div id="test-output"></div>
 
@@ -166,6 +185,46 @@
           <div style="font-size: 1.2em; color: #aaa; text-align: center; padding: 20px;">
             No tasks for today. Add #daily #morning or #daily #evening tags to task names.
           </div>
+        </div>
+      </div>
+
+      <!-- Assistant / AIDA Chat View -->
+      <div id="assistantView-view" class="view-container" style="display: none">
+
+        <!-- Connection status -->
+        <div id="aida-status-bar">
+          <span id="aida-status-dot" class="aida-dot aida-dot-disconnected"></span>
+          <span id="aida-status-text">Disconnected</span>
+        </div>
+
+        <!-- Quick action buttons -->
+        <div id="aida-quick-actions">
+          <button class="aida-action-btn" data-action="morning" onclick="aidaChat.triggerAction('morning')">
+            <i class="fa fa-sun-o"></i> Briefing
+          </button>
+          <button class="aida-action-btn" data-action="weekly-review" onclick="aidaChat.triggerAction('weekly-review')">
+            <i class="fa fa-calendar"></i> Week
+          </button>
+          <button class="aida-action-btn" data-action="email" onclick="aidaChat.triggerAction('email')">
+            <i class="fa fa-envelope-o"></i> Email
+          </button>
+        </div>
+
+        <!-- Scrollable message area -->
+        <div id="aida-messages"></div>
+
+        <!-- Typing indicator -->
+        <div id="aida-typing" style="display: none;">
+          <span class="aida-typing-dots"><span>.</span><span>.</span><span>.</span></span>
+          AIDA is thinking...
+        </div>
+
+        <!-- Input area -->
+        <div id="aida-input-bar">
+          <textarea id="aida-input" placeholder="Message AIDA..." rows="1"></textarea>
+          <button id="aida-send-btn" onclick="aidaChat.sendMessage()">
+            <i class="fa fa-paper-plane"></i>
+          </button>
         </div>
       </div>
 
@@ -231,6 +290,7 @@
         </div>
 
       </div>
+      </div><!-- end #view-area -->
 
 
      <div id="task-tree">

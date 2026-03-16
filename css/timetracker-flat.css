@@ -416,6 +416,42 @@ color: #000;
   color: #e8c547;
 }
 
+/* ###################### VIEW AREA & SLIDE TRANSITIONS ###################### */
+
+#view-area {
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Slide transition keyframes */
+@keyframes viewSlideInRight  { from { transform: translateX(100%); }  to { transform: translateX(0); } }
+@keyframes viewSlideInLeft   { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes viewSlideOutRight { from { transform: translateX(0); }     to { transform: translateX(100%); } }
+@keyframes viewSlideOutLeft  { from { transform: translateX(0); }     to { transform: translateX(-100%); } }
+
+.view-slide-in-right  { animation: viewSlideInRight 0.3s ease both; }
+.view-slide-in-left   { animation: viewSlideInLeft 0.3s ease both; }
+.view-slide-out-right { animation: viewSlideOutRight 0.3s ease both; }
+.view-slide-out-left  { animation: viewSlideOutLeft 0.3s ease both; }
+
+/* During transition: both views visible, absolutely positioned */
+.view-transitioning {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+/* Accessibility: disable animations for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .view-slide-in-right,
+  .view-slide-in-left,
+  .view-slide-out-right,
+  .view-slide-out-left {
+    animation: none;
+  }
+}
+
 /* Layout */
 .view-container, #header, #feedback{
   margin: 3%;
@@ -1565,4 +1601,394 @@ color: #000;
 
 #settings-account-status p {
   margin: 0 0 10px 0;
+}
+
+/* ###################### AIDA ASSISTANT VIEW ###################### */
+
+/* Layout — flex column filling available height */
+#assistantView-view {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 80px);
+  padding-bottom: 0 !important;
+}
+
+/* Connection status bar */
+#aida-status-bar {
+  padding: 6px 10px;
+  font-size: 0.85em;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.aida-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.aida-dot-connected {
+  background-color: #6abf69;
+}
+
+.aida-dot-connecting {
+  background-color: #e8a545;
+  animation: aidaPulse 1.2s ease-in-out infinite;
+}
+
+.aida-dot-disconnected {
+  background-color: #e8a545;
+}
+
+@keyframes aidaPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Quick action buttons */
+#aida-quick-actions {
+  padding: 8px 0;
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aida-action-btn {
+  padding: 6px 14px;
+  border: 1px solid #ddd;
+  background: #f5f5f5;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.9em;
+  border-radius: 3px;
+}
+
+.aida-action-btn:hover {
+  background: #e8e8e8;
+  color: #333;
+}
+
+.aida-action-btn:disabled,
+.aida-action-btn.loading {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.aida-action-btn i {
+  margin-right: 4px;
+}
+
+/* Scrollable message area */
+#aida-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 0;
+  min-height: 0;
+}
+
+/* Base message styling */
+.aida-msg {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  max-width: 85%;
+  word-wrap: break-word;
+  position: relative;
+}
+
+/* User messages — right-aligned */
+.aida-msg-user {
+  background-color: #dceefb;
+  margin-left: auto;
+  color: #333;
+}
+
+/* Assistant messages — left-aligned */
+.aida-msg-assistant {
+  background-color: #f3f3f3;
+  margin-right: auto;
+  color: #333;
+}
+
+/* System messages — centered, muted */
+.aida-msg-system {
+  background-color: transparent;
+  color: #999;
+  font-size: 0.85em;
+  text-align: center;
+  max-width: 100%;
+  padding: 6px;
+}
+
+/* Briefing messages — full width, accent header */
+.aida-msg-briefing {
+  max-width: 100%;
+  background-color: #fafaf5;
+  border: 1px solid #e8e4d4;
+  border-left: 3px solid #e8c547;
+}
+
+/* Alert messages — amber accent */
+.aida-msg-alert {
+  border-left: 3px solid #e8a545;
+  background-color: #fef8f0;
+}
+
+/* Draft messages — card style */
+.aida-msg-draft {
+  max-width: 100%;
+  background-color: #f8f9ff;
+  border: 1px solid #d8dce8;
+}
+
+/* Message timestamp */
+.aida-msg-time {
+  font-size: 0.75em;
+  color: #aaa;
+  margin-top: 6px;
+  text-align: right;
+}
+
+.aida-msg-user .aida-msg-time {
+  text-align: right;
+}
+
+.aida-msg-assistant .aida-msg-time {
+  text-align: left;
+}
+
+/* Message content — markdown elements */
+.aida-msg-content h2 {
+  font-size: 1.15em;
+  margin: 8px 0 4px;
+  color: #444;
+}
+
+.aida-msg-content h3 {
+  font-size: 1.05em;
+  margin: 6px 0 4px;
+  color: #555;
+}
+
+.aida-msg-content h4 {
+  font-size: 1em;
+  margin: 4px 0 2px;
+  color: #555;
+}
+
+.aida-msg-content ul,
+.aida-msg-content ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.aida-msg-content li {
+  margin-bottom: 3px;
+}
+
+.aida-msg-content hr {
+  border: none;
+  border-top: 1px solid #ddd;
+  margin: 10px 0;
+}
+
+.aida-code-block {
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+  margin: 6px 0;
+}
+
+.aida-inline-code {
+  background: #efefef;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.9em;
+}
+
+/* Draft action buttons */
+.aida-draft-actions {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e0e8;
+  display: flex;
+  gap: 8px;
+}
+
+.aida-draft-btn {
+  padding: 6px 14px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.9em;
+  border-radius: 3px;
+}
+
+.aida-draft-btn:hover {
+  background: #f0f0f0;
+}
+
+.aida-draft-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.aida-draft-approve {
+  border-color: #8aba8a;
+  color: #3a7a3a;
+}
+
+.aida-draft-approve:hover {
+  background: #e8f5e8;
+}
+
+.aida-draft-reject {
+  border-color: #d4a0a0;
+  color: #a44;
+}
+
+.aida-draft-reject:hover {
+  background: #fdf0f0;
+}
+
+.aida-draft-status {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e0e8;
+  color: #888;
+  font-size: 0.9em;
+  font-style: italic;
+}
+
+/* Draft editor */
+.aida-draft-editor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e0e0e8;
+}
+
+.aida-draft-textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 0.95em;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.aida-draft-editor-btns {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+/* Typing indicator */
+#aida-typing {
+  padding: 6px 10px;
+  color: #999;
+  font-size: 0.85em;
+  flex-shrink: 0;
+}
+
+.aida-typing-dots span {
+  animation: aidaBlink 1.4s infinite;
+  font-weight: bold;
+  font-size: 1.4em;
+  line-height: 1;
+}
+
+.aida-typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.aida-typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes aidaBlink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Input area */
+#aida-input-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 0;
+  flex-shrink: 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+#aida-input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1em;
+  font-family: inherit;
+  resize: none;
+  min-height: 20px;
+  max-height: 120px;
+  line-height: 1.4;
+}
+
+#aida-input:focus {
+  border-color: #4a90a4;
+  outline: none;
+}
+
+#aida-send-btn {
+  padding: 10px 16px;
+  border: 1px solid #bbb;
+  background: #ddd;
+  cursor: pointer;
+  font-size: 1em;
+  color: #555;
+  border-radius: 4px;
+  align-self: flex-end;
+}
+
+#aida-send-btn:hover {
+  background: #ccc;
+}
+
+#aida-send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Mobile adjustments */
+@media all and (max-width: 650px) {
+  #assistantView-view {
+    height: calc(100vh - 60px);
+  }
+
+  .aida-msg {
+    max-width: 95%;
+  }
+
+  .aida-msg-briefing,
+  .aida-msg-draft {
+    max-width: 100%;
+  }
+
+  #aida-quick-actions {
+    gap: 5px;
+  }
+
+  .aida-action-btn {
+    padding: 5px 10px;
+    font-size: 0.85em;
+  }
 }

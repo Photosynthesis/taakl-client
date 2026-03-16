@@ -42,6 +42,7 @@ analyze = {};
 treeView = {};
 settingsView = {};
 todayView = {};
+aidaChat = {};
 
 var currentView = treeView;
 
@@ -650,6 +651,9 @@ function ttInitCore(){
      }
    }, 'global');
 
+   // Initialize swipe navigation for view transitions
+   initSwipeNavigation();
+
 }
 
 /* ######################### TRACK SESSION CONTROL ########################## */
@@ -1221,39 +1225,152 @@ function showGeneralEditForm(type,id){
 
 
 
+var viewOrder = ['taskList', 'todayView', 'assistantView', 'analyze'];
+var viewTransitioning = false;
+
+function getViewObj(name) {
+  var map = { analyze: analyze, taskList: treeView, settingsView: settingsView, todayView: todayView, assistantView: aidaChat };
+  return map[name];
+}
+
+// Track current view name for transition logic
+var currentViewName = null;
+
 function setView(view){
 
-    if(currentView){
-       if(typeof currentView.hide == "function"){
-          currentView.hide();
-       }
+    if (viewTransitioning) return;
+    if (view === currentViewName) return;
+
+    var oldViewName = currentViewName;
+    var oldIdx = viewOrder.indexOf(oldViewName);
+    var newIdx = viewOrder.indexOf(view);
+    var shouldAnimate = oldIdx !== -1 && newIdx !== -1;
+
+    // Check prefers-reduced-motion
+    if (shouldAnimate && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      shouldAnimate = false;
     }
 
-    if(view == "analyze"){
-      currentView = analyze;
-    }else if(view == "taskList"){
-      currentView = treeView;
-    }else if(view == "settingsView"){
-      currentView = settingsView;
-    }else if(view == "todayView"){
-      currentView = todayView;
+    var oldEl = document.getElementById(oldViewName + '-view');
+    var newEl = document.getElementById(view + '-view');
+
+    // Call hide on old view
+    if(currentView && typeof currentView.hide == "function"){
+      currentView.hide();
     }
 
-    viewElements = document.getElementsByClassName("view-container");
+    // Update currentView reference
+    currentView = getViewObj(view);
+    currentViewName = view;
 
-    for (var i = 0; i < viewElements.length; ++i){
-       if(viewElements[i].id == view+"-view"){
+    if (shouldAnimate && oldEl && newEl) {
+      // Animated transition
+      viewTransitioning = true;
+      var goingRight = newIdx > oldIdx; // new view is to the right
+
+      // Show new view
+      newEl.style.display = 'block';
+
+      // Add transitioning + animation classes
+      oldEl.classList.add('view-transitioning');
+      newEl.classList.add('view-transitioning');
+      oldEl.classList.add(goingRight ? 'view-slide-out-left' : 'view-slide-out-right');
+      newEl.classList.add(goingRight ? 'view-slide-in-right' : 'view-slide-in-left');
+
+      // Clean up after animation
+      var cleanup = function() {
+        oldEl.classList.remove('view-transitioning', 'view-slide-out-left', 'view-slide-out-right');
+        newEl.classList.remove('view-transitioning', 'view-slide-in-right', 'view-slide-in-left');
+        oldEl.style.display = 'none';
+        viewTransitioning = false;
+        if(typeof currentView.show == "function"){
+          currentView.show();
+        }
+      };
+
+      newEl.addEventListener('animationend', function onEnd() {
+        newEl.removeEventListener('animationend', onEnd);
+        cleanup();
+      });
+
+      // Fallback timeout in case animationend doesn't fire
+      setTimeout(function() {
+        if (viewTransitioning) cleanup();
+      }, 400);
+
+    } else {
+      // Instant switch (settings or non-ordered views)
+      var viewElements = document.getElementsByClassName("view-container");
+      for (var i = 0; i < viewElements.length; ++i){
+        if(viewElements[i].id == view+"-view"){
           viewElements[i].style.display = "block";
-       }else{
+        }else{
           viewElements[i].style.display = "none";
-       }
-    }
+        }
+      }
 
-    if(typeof currentView.show == "function"){
-      currentView.show();
+      if(typeof currentView.show == "function"){
+        currentView.show();
+      }
     }
 }
 
+// Swipe navigation between views
+var swipeState = { startX: 0, startY: 0, tracking: false };
+
+function initSwipeNavigation() {
+  var viewArea = document.getElementById('view-area');
+  if (!viewArea) return;
+
+  viewArea.addEventListener('touchstart', function(e) {
+    if (viewTransitioning) return;
+    // Don't track if touching an input or textarea
+    var tag = e.target.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    // Also skip if target is inside the aida input bar
+    if (e.target.closest && e.target.closest('#aida-input-bar')) return;
+
+    swipeState.startX = e.touches[0].clientX;
+    swipeState.startY = e.touches[0].clientY;
+    swipeState.tracking = true;
+  }, { passive: true });
+
+  viewArea.addEventListener('touchmove', function(e) {
+    if (!swipeState.tracking) return;
+    var dx = e.touches[0].clientX - swipeState.startX;
+    var dy = e.touches[0].clientY - swipeState.startY;
+    // If vertical movement dominates, cancel swipe tracking
+    if (Math.abs(dy) > Math.abs(dx)) {
+      swipeState.tracking = false;
+    }
+  }, { passive: true });
+
+  viewArea.addEventListener('touchend', function(e) {
+    if (!swipeState.tracking) return;
+    swipeState.tracking = false;
+    if (viewTransitioning) return;
+
+    var endX = e.changedTouches[0].clientX;
+    var dx = endX - swipeState.startX;
+    if (Math.abs(dx) < 50) return; // threshold
+
+    var curIdx = viewOrder.indexOf(currentViewName);
+    if (curIdx === -1) return;
+
+    var targetIdx;
+    if (dx < 0) {
+      // Swipe left → next view
+      targetIdx = curIdx + 1;
+    } else {
+      // Swipe right → previous view
+      targetIdx = curIdx - 1;
+    }
+
+    if (targetIdx >= 0 && targetIdx < viewOrder.length) {
+      setView(viewOrder[targetIdx]);
+    }
+  }, { passive: true });
+}
 
 
 
@@ -3432,6 +3549,11 @@ settingsView.show = function(){
     }
   }
 
+
+  // Load AIDA settings if the function exists
+  if (typeof aidaChat.loadSettings === 'function') {
+    aidaChat.loadSettings();
+  }
 
 }
 
