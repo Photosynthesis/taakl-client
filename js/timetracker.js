@@ -1639,6 +1639,11 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
       starEl.innerHTML = '<i class="fa fa-star" style="color:#f5a623"></i> Yes';
       meta.appendChild(treeView._metaItem('Starred', starEl));
     }
+    if (node.urgent === '1') {
+      var urgentEl = document.createElement('span');
+      urgentEl.innerHTML = '\uD83D\uDD25 Yes';
+      meta.appendChild(treeView._metaItem('Urgent', urgentEl));
+    }
     if (node.billable === '0') {
       meta.appendChild(treeView._metaItem('Billable', 'No'));
     }
@@ -2101,7 +2106,8 @@ treeView.renderNode = function(container, nodeId, depth) {
     // Store original values for change detection (survives re-renders)
     treeView.originalValues[nodeId] = {
       name: node.name,
-      estimate: node.estimate || 0
+      estimate: node.estimate || 0,
+      due: node.due || ''
     };
   };
 
@@ -2140,12 +2146,13 @@ treeView.renderNode = function(container, nodeId, depth) {
     // Meta info (time + estimate)
     var time = calculateNodeTime(nodeId);
     var estimate = node.estimate || 0;
-    if (time > 0 || estimate > 0) {
+    if (time > 0 || estimate > 0 || node.due) {
       var meta = document.createElement('span');
       meta.className = 'tree-meta';
       var parts = [];
       if (time > 0) parts.push('<span class="time">' + prettyTime(time) + '</span>');
       if (estimate > 0) parts.push('<span class="tree-estimate">est ' + prettyTime(estimate) + '</span>');
+      if (node.due) parts.push('<span class="tree-due">' + moment(node.due).format('MMM D') + '</span>');
       meta.innerHTML = parts.join(' ');
       row.appendChild(meta);
     }
@@ -2159,6 +2166,15 @@ treeView.renderNode = function(container, nodeId, depth) {
         treeView.toggleStar(nodeId);
       };
       row.appendChild(star);
+
+      var urgentBtn = document.createElement('span');
+      urgentBtn.className = 'tree-urgent' + (node.urgent === '1' ? ' urgent' : '');
+      urgentBtn.textContent = '\uD83D\uDD25';
+      urgentBtn.onclick = function(e) {
+        e.stopPropagation();
+        treeView.toggleUrgent(nodeId);
+      };
+      row.appendChild(urgentBtn);
 
       var play = document.createElement('i');
       play.className = 'fa fa-play-circle tree-play';
@@ -2202,6 +2218,7 @@ treeView.finalizeNode = function(nodeId) {
 
   var originalName = original.name || '';
   var originalEstimate = original.estimate || 0;
+  var originalDue = original.due || '';
 
   // Parse estimate from name (e.g. "Fix bug (30 m)" or "Fix bug 30m")
   if (node.name) {
@@ -2212,8 +2229,17 @@ treeView.finalizeNode = function(nodeId) {
     }
   }
 
+  // Parse date hashtags from name (e.g. "Fix bug #tomorrow")
+  if (node.name) {
+    var dateParsed = parseDateFromInput(node.name);
+    if (dateParsed.due) {
+      node.name = dateParsed.name;
+      node.due = dateParsed.due;
+    }
+  }
+
   // Check if anything changed and save
-  if (node.name !== originalName || node.estimate !== originalEstimate) {
+  if (node.name !== originalName || node.estimate !== originalEstimate || (node.due || '') !== originalDue) {
     ttSave();
     emitEvent('node', 'updated', nodeId);
   }
@@ -2456,6 +2482,15 @@ treeView.toggleStar = function(nodeId) {
   emitEvent('node', 'updated', nodeId);
 };
 
+treeView.toggleUrgent = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+  node.urgent = node.urgent === '1' ? '0' : '1';
+  ttSave();
+  treeView.update();
+  emitEvent('node', 'updated', nodeId);
+};
+
 treeView.startSession = function(nodeId) {
   var node = getNode(nodeId);
   if (!node) return;
@@ -2563,11 +2598,13 @@ treeView.saveNewTaskFromToday = function() {
 
   var parentId = todayFolderAc.selectedParentId;
   var parsed = parseEstimateFromInput(name);
+  var dateParsed = parseDateFromInput(parsed.name);
 
   createNode(parentId, {
-    name: parsed.name,
+    name: dateParsed.name,
     type: 'task',
     estimate: parsed.estimate,
+    due: dateParsed.due || '',
     starred: '1'
   });
 
@@ -3687,6 +3724,11 @@ todayView.createTaskElement = function(task){
   var starIcon = "<i class='fa fa-star task-star " + starClass +
     "' onclick=\"todayView.toggleNodeStar('" + task.id + "')\"></i>";
 
+  // Urgent icon
+  var urgentClass = (task.urgent == "1") ? "urgent" : "";
+  var urgentIcon = "<span class='task-urgent " + urgentClass +
+    "' onclick=\"todayView.toggleNodeUrgent('" + task.id + "')\">&#128293;</span>";
+
   // Play button
   var playIcon = "<i onclick=\"treeView.startSession('" + task.id + "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
 
@@ -3696,7 +3738,7 @@ todayView.createTaskElement = function(task){
   taskDiv.innerHTML =
     "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
       "<div class='today-task-main'>" +
-        checkCompleted + " " + starIcon + " " + escapeHtml(task.truncateName) +
+        checkCompleted + " " + starIcon + " " + urgentIcon + " " + escapeHtml(task.truncateName) +
         "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + (task.metaEstimate || '') + "</span>" +
       "</div>" +
       "<div class='today-task-actions'>" + playIcon + "</div>" +
@@ -3722,6 +3764,16 @@ todayView.toggleNodeStar = function(nodeId) {
   if (!node) return;
 
   node.starred = node.starred === '1' ? '0' : '1';
+  ttSave();
+  todayView.update();
+  emitEvent('node', 'updated', nodeId);
+};
+
+todayView.toggleNodeUrgent = function(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  node.urgent = node.urgent === '1' ? '0' : '1';
   ttSave();
   todayView.update();
   emitEvent('node', 'updated', nodeId);
@@ -4202,6 +4254,7 @@ function getNodeData(id) {
     data.estimate = node.estimate;
     data.due = node.due;
     data.starred = node.starred;
+    data.urgent = node.urgent;
     data.notes = node.notes;
     data.sessions = node.sessions || {};
     data.completed_at = node.completed_at || [];
@@ -4562,6 +4615,7 @@ function upsertNodeLocally(uuid, data, parentUuid) {
   if (data.estimate !== undefined) node.estimate = data.estimate;
   if (data.due !== undefined) node.due = data.due;
   if (data.starred !== undefined) node.starred = data.starred;
+  if (data.urgent !== undefined) node.urgent = data.urgent;
   if (data.notes !== undefined) node.notes = data.notes;
   if (data.sessions !== undefined) node.sessions = data.sessions;
   if (data.completed_at !== undefined) node.completed_at = data.completed_at;
@@ -4823,6 +4877,7 @@ function createNode(parentId, data, isProvisional) {
   if (node.type === 'task') {
     node.status = data.status || 'new';
     node.starred = data.starred || '0';
+    node.urgent = data.urgent || '0';
     node.billable = data.billable || '1';
     node.estimate = data.estimate || 0;
     node.notes = data.notes || '';
@@ -5201,6 +5256,53 @@ function parseEstimateFromInput(input) {
   return {
     name: input,
     estimate: 0
+  };
+}
+
+/**
+ * Parse date hashtags from input string (e.g. #tomorrow, #friday, #nextweek)
+ * @param {string} input - The text to parse
+ * @returns {object} - { name: cleanedName, due: 'YYYY-MM-DD' or null }
+ */
+function parseDateFromInput(input) {
+  if (!input || typeof input !== 'string') {
+    return { name: input || '', due: null };
+  }
+
+  var datePattern = /#(today|tomorrow|nextweek|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?!\w)/i;
+  var match = datePattern.exec(input);
+
+  if (!match) {
+    return { name: input, due: null };
+  }
+
+  var keyword = match[1].toLowerCase();
+  // Use 3am rollover for logical day (consistent with rest of app)
+  var now = moment().subtract(3, 'hours');
+  var due;
+
+  if (keyword === 'today') {
+    due = now.clone();
+  } else if (keyword === 'tomorrow') {
+    due = now.clone().add(1, 'day');
+  } else if (keyword === 'nextweek') {
+    // Next Monday
+    due = now.clone().add(1, 'week').startOf('isoWeek');
+  } else {
+    // Day of week — find next occurrence, never today
+    var dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    var targetDay = dayNames.indexOf(keyword);
+    var currentDay = now.day();
+    var daysAhead = targetDay - currentDay;
+    if (daysAhead <= 0) daysAhead += 7;
+    due = now.clone().add(daysAhead, 'days');
+  }
+
+  var cleanName = input.replace(datePattern, '').replace(/  +/g, ' ').trim();
+
+  return {
+    name: cleanName,
+    due: due.format('YYYY-MM-DD')
   };
 }
 

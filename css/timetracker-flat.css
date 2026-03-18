@@ -416,6 +416,25 @@ color: #000;
   color: #e8c547;
 }
 
+.task-urgent {
+  cursor: pointer;
+  margin-right: 5px;
+  font-size: 0.85em;
+  filter: grayscale(100%);
+  opacity: 0.5;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+}
+
+.task-urgent:hover {
+  filter: none;
+  opacity: 1;
+}
+
+.task-urgent.urgent {
+  filter: none;
+  opacity: 1;
+}
+
 /* ###################### VIEW AREA & SLIDE TRANSITIONS ###################### */
 
 #view-area {
@@ -938,6 +957,11 @@ color: #000;
   margin-left: 5px;
 }
 
+.tree-meta .tree-due {
+  color: #c77;
+  margin-left: 5px;
+}
+
 .tree-meta .estimate {
   color: #5a9;
 }
@@ -981,6 +1005,25 @@ color: #000;
 .tree-star:hover,
 .tree-star.starred {
   color: #e8c547;
+}
+
+.tree-urgent {
+  cursor: pointer;
+  margin-left: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  filter: grayscale(100%);
+  font-size: 0.85em;
+}
+
+.tree-row:hover .tree-urgent,
+.tree-urgent.urgent {
+  opacity: 1;
+}
+
+.tree-urgent.urgent {
+  filter: none;
 }
 
 /* Children container */
@@ -1038,7 +1081,8 @@ color: #000;
   }
 
   .tree-play,
-  .tree-star {
+  .tree-star,
+  .tree-urgent {
     opacity: 1;
   }
 
