@@ -216,6 +216,7 @@ function ajaxReq(opts) {
     url += (url.indexOf('?') === -1 ? '?' : '&') + '_=' + new Date().getTime();
   }
   xhr.open(opts.type || 'GET', url, true);
+  xhr.timeout = opts.timeout || 30000;
   if (opts.contentType) {
     xhr.setRequestHeader('Content-Type', opts.contentType);
   }
@@ -228,6 +229,11 @@ function ajaxReq(opts) {
   }
   xhr.onreadystatechange = function() {
     if (xhr.readyState !== 4) return;
+    if (xhr.status === 0) {
+      // Network failure (offline, DNS error, CORS block, etc.)
+      if (opts.error) opts.error(xhr, '', 'Network unavailable');
+      return;
+    }
     if (xhr.status >= 200 && xhr.status < 300) {
       var result;
       try { result = JSON.parse(xhr.responseText); }
@@ -236,6 +242,12 @@ function ajaxReq(opts) {
     } else {
       if (opts.error) opts.error(xhr, '', xhr.statusText);
     }
+  };
+  xhr.ontimeout = function() {
+    if (opts.error) opts.error(xhr, '', 'Request timed out');
+  };
+  xhr.onerror = function() {
+    if (opts.error) opts.error(xhr, '', 'Network error');
   };
   xhr.send(opts.data || null);
 }
@@ -546,6 +558,7 @@ function ttInitCore(){
     }else{
       console.log('[INIT] Loading ttData from localStorage');
       ttData = JSON.parse(localStorage.ttData);
+      synchQueue.restore();
       console.log('[INIT] Loaded nodes count:', ttData.nodes ? Object.keys(ttData.nodes).length : 0);
 
       // Log sessions in loaded data
@@ -4194,6 +4207,13 @@ var synchQueue = {
   queue: []
 };
 
+synchQueue.restore = function() {
+  if (ttData.synchQueue && ttData.synchQueue.length > 0) {
+    synchQueue.queue = ttData.synchQueue;
+    console.log('[SYNC] Restored', synchQueue.queue.length, 'queued changes from localStorage');
+  }
+};
+
 synchQueue.add = function(action, type, id, parentId) {
   var timestamp = new Date().toISOString().replace('T', ' ').substr(0, 19);
   var change = {
@@ -4210,6 +4230,22 @@ synchQueue.add = function(action, type, id, parentId) {
   // Get the data for insert/update
   if (action !== 'delete') {
     change.data = getItemData(type, id);
+  }
+
+  // Deduplicate: remove existing entries for the same (type, uuid)
+  var preserveInsert = false;
+  for (var i = synchQueue.queue.length - 1; i >= 0; i--) {
+    if (synchQueue.queue[i].type === type && synchQueue.queue[i].uuid === id) {
+      // If previous was an insert and new is an update, keep the insert action
+      // (server needs to know it's a new record) but use latest data
+      if (synchQueue.queue[i].action === 'insert' && action === 'update') {
+        preserveInsert = true;
+      }
+      synchQueue.queue.splice(i, 1);
+    }
+  }
+  if (preserveInsert) {
+    change.action = 'insert';
   }
 
   synchQueue.queue.push(change);
@@ -4357,17 +4393,6 @@ function synchFromServer() {
       if (result.success && result.ttData) {
         var serverData = result.ttData;
 
-        // Preserve local auth info
-        serverData.userKey = ttData.userKey;
-        serverData.userName = ttData.userName;
-        serverData.synchQueue = [];
-        serverData.lastSyncTime = new Date().toISOString().replace('T', ' ').substr(0, 19);
-
-        // Ensure settings exist
-        if (!serverData.settings) {
-          serverData.settings = defaultSettings;
-        }
-
         // Ensure v2 data structure fields exist
         if (!serverData.dataVersion) {
           serverData.dataVersion = 2;
@@ -4378,14 +4403,12 @@ function synchFromServer() {
         if (!serverData.rootOrder) {
           serverData.rootOrder = [];
         }
+        if (!serverData.settings) {
+          serverData.settings = defaultSettings;
+        }
 
-        // Preserve local rootOrder through full sync
-        var localRootOrder = ttData.rootOrder || [];
-
-        ttData = serverData;
-
-        // Merge: preserve local ordering, incorporate server additions/deletions
-        ttData.rootOrder = mergeRootOrder(localRootOrder, serverData.rootOrder, ttData.nodes);
+        // Smart merge instead of destructive replace
+        mergeServerData(serverData);
 
         ttSave();
         setFeedback('Data successfully synced from server.');
@@ -4518,6 +4541,98 @@ function mergeRootOrder(localOrder, serverOrder, nodes) {
   }
 
   return merged;
+}
+
+// Merge server data with local data instead of destructive replace.
+// - Nodes with pending local changes: local wins, but merge sessions additively
+// - Nodes with no pending changes: server wins, preserve local-only fields
+// - New server-only nodes: add them
+// - Local-only nodes not on server and not in queue: remove them (deleted elsewhere)
+function mergeServerData(serverData) {
+  var serverNodes = serverData.nodes || {};
+  var localNodes = ttData.nodes || {};
+
+  // Build set of node UUIDs that have pending local changes
+  var pendingUuids = {};
+  for (var i = 0; i < synchQueue.queue.length; i++) {
+    var entry = synchQueue.queue[i];
+    if (entry.type === 'node') {
+      pendingUuids[entry.uuid] = true;
+    }
+  }
+
+  var mergedNodes = {};
+
+  // Process all server nodes
+  for (var sid in serverNodes) {
+    var serverNode = serverNodes[sid];
+
+    if (localNodes[sid]) {
+      var localNode = localNodes[sid];
+
+      if (pendingUuids[sid]) {
+        // Local wins for pending changes, but merge sessions additively
+        mergedNodes[sid] = localNode;
+        if (serverNode.sessions) {
+          if (!mergedNodes[sid].sessions) mergedNodes[sid].sessions = {};
+          for (var sessId in serverNode.sessions) {
+            if (!mergedNodes[sid].sessions[sessId]) {
+              mergedNodes[sid].sessions[sessId] = serverNode.sessions[sessId];
+            }
+          }
+        }
+      } else {
+        // Server wins, but preserve local-only fields the server doesn't know about
+        mergedNodes[sid] = serverNode;
+        if (localNode.urgent !== undefined && serverNode.urgent === undefined) {
+          mergedNodes[sid].urgent = localNode.urgent;
+        }
+        if (localNode.completed_at !== undefined && serverNode.completed_at === undefined) {
+          mergedNodes[sid].completed_at = localNode.completed_at;
+        }
+        // Merge sessions additively (union)
+        if (localNode.sessions) {
+          if (!mergedNodes[sid].sessions) mergedNodes[sid].sessions = {};
+          for (var sessId in localNode.sessions) {
+            if (!mergedNodes[sid].sessions[sessId]) {
+              mergedNodes[sid].sessions[sessId] = localNode.sessions[sessId];
+            }
+          }
+        }
+      }
+    } else {
+      // New server-only node
+      mergedNodes[sid] = serverNode;
+    }
+  }
+
+  // Keep local-only nodes that are in the sync queue (not yet sent to server)
+  for (var lid in localNodes) {
+    if (!serverNodes[lid] && pendingUuids[lid]) {
+      mergedNodes[lid] = localNodes[lid];
+    }
+  }
+
+  ttData.nodes = mergedNodes;
+
+  // Merge rootOrder
+  var localRootOrder = ttData.rootOrder || [];
+  var serverRootOrder = serverData.rootOrder || [];
+  ttData.rootOrder = mergeRootOrder(localRootOrder, serverRootOrder, ttData.nodes);
+
+  // Accept server settings if non-empty
+  if (serverData.settings && Object.keys(serverData.settings).length > 0) {
+    ttData.settings = serverData.settings;
+  }
+
+  // Preserve auth info
+  ttData.userKey = ttData.userKey;
+  ttData.userName = ttData.userName;
+  ttData.dataVersion = serverData.dataVersion || ttData.dataVersion || 2;
+  ttData.lastSyncTime = new Date().toISOString().replace('T', ' ').substr(0, 19);
+
+  console.log('[SYNC] Merged:', Object.keys(mergedNodes).length, 'nodes (' +
+    Object.keys(pendingUuids).length, 'had pending local changes)');
 }
 
 // Apply changes received from server
