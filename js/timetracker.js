@@ -644,6 +644,7 @@ function ttInitCore(){
 
    if(getSetting("auto_synch") == "yes" && isLoggedIn()){
      synchToServer();
+     startAutoSync();
    }
 
    // Prompt login on first visit (no existing data and not logged in)
@@ -1617,11 +1618,46 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
   }
   header.appendChild(breadcrumb);
 
-  // Title
-  var title = document.createElement('h2');
+  // Title (editable)
+  var title = document.createElement('textarea');
+  title.rows = 1;
   title.className = 'node-view-title';
-  title.textContent = node.name || '(unnamed)';
+  title.value = node.name || '';
+  title.placeholder = 'Untitled';
+
+  function autoResizeTitle(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
+  title.oninput = function() {
+    autoResizeTitle(this);
+    node.name = this.value;
+  };
+
+  title.onfocus = function() {
+    treeView.originalValues[nodeId] = {
+      name: node.name,
+      estimate: node.estimate || 0,
+      due: node.due || ''
+    };
+  };
+
+  title.onblur = function() {
+    treeView.finalizeNode(nodeId);
+  };
+
+  title.onkeydown = function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      this.blur();
+    }
+  };
+
   header.appendChild(title);
+
+  // Auto-size after appending to DOM
+  setTimeout(function() { autoResizeTitle(title); }, 0);
 
   // Metadata grid
   var meta = document.createElement('div');
@@ -2822,10 +2858,6 @@ function endNodeSession(markComplete) {
   treeView.update();
 
   emitEvent('session', 'ended');
-
-  if (getSetting("auto_synch") == "yes" && isLoggedIn()) {
-    synchToServer();
-  }
 }
 
 
@@ -3619,6 +3651,13 @@ settingsView.save = function(){
 
   dbg("Settings after save",ttData.settings);
   ttSave();
+
+  if (getSetting("auto_synch") == "yes" && isLoggedIn()) {
+    startAutoSync();
+  } else {
+    stopAutoSync();
+  }
+
   setFeedback('Settings updated');
 }
 
@@ -4206,6 +4245,8 @@ function updateSelectOptions(target_element,new_options,append){
 var synchQueue = {
   queue: []
 };
+var autoSyncIntervalId = null;
+var syncInProgress = false;
 
 synchQueue.restore = function() {
   if (ttData.synchQueue && ttData.synchQueue.length > 0) {
@@ -4347,12 +4388,34 @@ function synchIconStatus(status) {
   }
 }
 
+function startAutoSync() {
+  stopAutoSync();
+  autoSyncIntervalId = setInterval(function() {
+    if (syncInProgress || !isLoggedIn()) return;
+    var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
+                          (synchQueue.queue && synchQueue.queue.length > 0);
+    if (hasLocalChanges) {
+      synchToServer();
+    }
+  }, 30000);
+}
+
+function stopAutoSync() {
+  if (autoSyncIntervalId) {
+    clearInterval(autoSyncIntervalId);
+    autoSyncIntervalId = null;
+  }
+}
+
 // Main sync function
 function synchToServer() {
   if (!isLoggedIn()) {
     showAuthModal('login');
     return;
   }
+
+  if (syncInProgress) return;
+  syncInProgress = true;
 
   // Check if we have local changes
   var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
@@ -4413,11 +4476,13 @@ function synchFromServer() {
         ttSave();
         setFeedback('Data successfully synced from server.');
         synchIconStatus("done");
+        syncInProgress = false;
         emitEvent('server', 'synch');
 
       } else {
         setFeedback('Sync completed (no server data)', 'notice');
         synchIconStatus("done");
+        syncInProgress = false;
       }
     },
     error: function(xhr, ajaxOptions, thrownError) {
@@ -4432,6 +4497,7 @@ function synchFromServer() {
         setFeedback('Error synching from server: ' + thrownError, 'error');
       }
       synchIconStatus("error");
+      syncInProgress = false;
     }
   });
 }
@@ -4492,10 +4558,12 @@ function synchIncremental() {
         }
         setFeedback(msg);
         synchIconStatus("done");
+        syncInProgress = false;
         emitEvent('server', 'synch');
       } else {
         setFeedback('Sync error: ' + (result.error || 'Unknown'), 'error');
         synchIconStatus("error");
+        syncInProgress = false;
       }
     },
     error: function(xhr, ajaxOptions, thrownError) {
@@ -4509,6 +4577,7 @@ function synchIncremental() {
         setFeedback('Sync error: ' + thrownError, 'error');
       }
       synchIconStatus("error");
+      syncInProgress = false;
     }
   });
 }
@@ -4620,9 +4689,13 @@ function mergeServerData(serverData) {
   var serverRootOrder = serverData.rootOrder || [];
   ttData.rootOrder = mergeRootOrder(localRootOrder, serverRootOrder, ttData.nodes);
 
-  // Accept server settings if non-empty
+  // Merge server settings: local settings take precedence (they are device-local prefs)
   if (serverData.settings && Object.keys(serverData.settings).length > 0) {
-    ttData.settings = serverData.settings;
+    for (var skey in serverData.settings) {
+      if (ttData.settings[skey] === undefined) {
+        ttData.settings[skey] = serverData.settings[skey];
+      }
+    }
   }
 
   // Preserve auth info
