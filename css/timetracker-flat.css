@@ -1163,7 +1163,7 @@ color: #000;
 
 .node-view-meta-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
 }
 
@@ -1177,6 +1177,105 @@ color: #000;
 .node-view-meta-value {
   font-size: 0.92em;
   color: #444;
+}
+
+.node-view-meta-select {
+  font-size: 0.92em;
+  color: #444;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23999'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 16px;
+}
+
+.node-view-meta-select:focus,
+.node-view-meta-select:hover {
+  border-color: #ccc;
+  background-color: #fafafa;
+}
+
+.node-view-meta-input {
+  font-size: 0.92em;
+  color: #444;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-family: inherit;
+  outline: none;
+  width: 80px;
+}
+
+.node-view-meta-input:focus,
+.node-view-meta-input:hover {
+  border-color: #ccc;
+  background-color: #fafafa;
+}
+
+.node-view-meta-input::placeholder {
+  color: #bbb;
+  font-style: italic;
+}
+
+.node-view-meta-due-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.node-view-meta-due {
+  width: 90px;
+  cursor: pointer;
+}
+
+.node-view-meta-due-clear {
+  cursor: pointer;
+  color: #999;
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.node-view-meta-due-clear:hover {
+  color: #e44;
+}
+
+.node-view-meta-toggle {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  color: #999;
+  font-size: 0.92em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.node-view-meta-toggle:hover {
+  border-color: #ccc;
+  background-color: #fafafa;
+}
+
+.node-view-meta-toggle.active {
+  color: #444;
+}
+
+.node-view-meta-toggle.active .fa-star {
+  color: #f5a623;
+}
+
+.node-view-meta-toggle.active .fa-money {
+  color: #4a9;
 }
 
 .node-view-notes-section {

@@ -1669,33 +1669,166 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
   }
 
   if (isTask) {
-    if (node.estimate && node.estimate > 0) {
-      meta.appendChild(treeView._metaItem('Estimate', prettyTime(node.estimate)));
+    // --- Status dropdown ---
+    var statusSelect = document.createElement('select');
+    statusSelect.className = 'node-view-meta-select';
+    var statusOptions = [
+      {value: 'new', label: 'New'},
+      {value: 'inProcess', label: 'In Process'},
+      {value: 'onHold', label: 'On Hold'},
+      {value: 'completed', label: 'Completed'}
+    ];
+    for (var si = 0; si < statusOptions.length; si++) {
+      var sopt = document.createElement('option');
+      sopt.value = statusOptions[si].value;
+      sopt.textContent = statusOptions[si].label;
+      if ((node.status || 'new') === statusOptions[si].value) sopt.selected = true;
+      statusSelect.appendChild(sopt);
     }
-    if (node.status && node.status !== 'new') {
-      var statusLabels = {inProcess: 'In Process', completed: 'Completed', onHold: 'On Hold'};
-      meta.appendChild(treeView._metaItem('Status', statusLabels[node.status] || node.status));
+    statusSelect.onchange = function() {
+      node.status = this.value;
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    };
+    meta.appendChild(treeView._metaItem('Status', statusSelect));
+
+    // --- Priority dropdown ---
+    var prioritySelect = document.createElement('select');
+    prioritySelect.className = 'node-view-meta-select';
+    var priorityOptions = [
+      {value: '1', label: '1 (Highest)'},
+      {value: '2', label: '2 (High)'},
+      {value: '3', label: '3 (Normal)'},
+      {value: '4', label: '4 (Low)'},
+      {value: '5', label: '5 (Lowest)'}
+    ];
+    for (var pi = 0; pi < priorityOptions.length; pi++) {
+      var popt = document.createElement('option');
+      popt.value = priorityOptions[pi].value;
+      popt.textContent = priorityOptions[pi].label;
+      if ((node.priority || '3') === priorityOptions[pi].value) popt.selected = true;
+      prioritySelect.appendChild(popt);
     }
-    if (node.priority && node.priority !== '3') {
-      var priorityLabels = {'1': '1 (Highest)', '2': '2 (High)', '4': '4 (Low)', '5': '5 (Lowest)'};
-      meta.appendChild(treeView._metaItem('Priority', priorityLabels[node.priority] || node.priority));
-    }
-    if (node.due) {
-      meta.appendChild(treeView._metaItem('Due', moment(node.due).format('MMM D, YYYY')));
-    }
-    if (node.starred === '1') {
-      var starEl = document.createElement('span');
-      starEl.innerHTML = '<i class="fa fa-star" style="color:#f5a623"></i> Yes';
-      meta.appendChild(treeView._metaItem('Starred', starEl));
-    }
-    if (node.urgent === '1') {
-      var urgentEl = document.createElement('span');
-      urgentEl.innerHTML = '\uD83D\uDD25 Yes';
-      meta.appendChild(treeView._metaItem('Urgent', urgentEl));
-    }
-    if (node.billable === '0') {
-      meta.appendChild(treeView._metaItem('Billable', 'No'));
-    }
+    prioritySelect.onchange = function() {
+      node.priority = this.value;
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    };
+    meta.appendChild(treeView._metaItem('Priority', prioritySelect));
+
+    // --- Due date with Pikaday ---
+    var dueWrap = document.createElement('span');
+    dueWrap.className = 'node-view-meta-due-wrap';
+    var dueInput = document.createElement('input');
+    dueInput.type = 'text';
+    dueInput.className = 'node-view-meta-input node-view-meta-due';
+    dueInput.placeholder = 'None';
+    dueInput.readOnly = true;
+    dueInput.value = node.due ? moment(node.due).format('YYYY-MM-DD') : '';
+    dueWrap.appendChild(dueInput);
+    var dueClear = document.createElement('span');
+    dueClear.className = 'node-view-meta-due-clear';
+    dueClear.innerHTML = '&times;';
+    dueClear.title = 'Clear due date';
+    dueClear.style.display = node.due ? 'inline' : 'none';
+    dueWrap.appendChild(dueClear);
+    meta.appendChild(treeView._metaItem('Due', dueWrap));
+    // Pikaday must be initialized after the input is in the DOM
+    setTimeout(function() {
+      var picker = new Pikaday({
+        field: dueInput,
+        format: 'YYYY-MM-DD',
+        onSelect: function(date) {
+          var val = moment(date).format('YYYY-MM-DD');
+          node.due = val;
+          dueInput.value = val;
+          dueClear.style.display = 'inline';
+          ttSave();
+          emitEvent('node', 'updated', nodeId);
+        }
+      });
+      dueClear.onclick = function() {
+        node.due = '';
+        dueInput.value = '';
+        dueClear.style.display = 'none';
+        picker.setDate(null);
+        ttSave();
+        emitEvent('node', 'updated', nodeId);
+      };
+    }, 0);
+
+    // --- Estimate input ---
+    var estInput = document.createElement('input');
+    estInput.type = 'text';
+    estInput.className = 'node-view-meta-input';
+    estInput.placeholder = 'None';
+    estInput.value = node.estimate && node.estimate > 0 ? prettyTime(node.estimate) : '';
+    estInput.onblur = function() {
+      var raw = this.value.trim();
+      if (!raw) {
+        if (node.estimate && node.estimate > 0) {
+          node.estimate = 0;
+          ttSave();
+          emitEvent('node', 'updated', nodeId);
+        }
+        return;
+      }
+      var parsed = parseEstimateFromInput(raw);
+      if (parsed.estimate > 0) {
+        node.estimate = parsed.estimate;
+        this.value = prettyTime(node.estimate);
+        ttSave();
+        emitEvent('node', 'updated', nodeId);
+      } else {
+        // Restore previous value if parsing fails
+        this.value = node.estimate && node.estimate > 0 ? prettyTime(node.estimate) : '';
+      }
+    };
+    estInput.onkeydown = function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    };
+    meta.appendChild(treeView._metaItem('Estimate', estInput));
+
+    // --- Starred toggle ---
+    var starBtn = document.createElement('span');
+    starBtn.className = 'node-view-meta-toggle' + (node.starred === '1' ? ' active' : '');
+    starBtn.innerHTML = '<i class="fa fa-star"></i> ' + (node.starred === '1' ? 'Yes' : 'No');
+    starBtn.onclick = function() {
+      node.starred = node.starred === '1' ? '0' : '1';
+      this.className = 'node-view-meta-toggle' + (node.starred === '1' ? ' active' : '');
+      this.innerHTML = '<i class="fa fa-star"></i> ' + (node.starred === '1' ? 'Yes' : 'No');
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    };
+    meta.appendChild(treeView._metaItem('Starred', starBtn));
+
+    // --- Urgent toggle ---
+    var urgentBtn = document.createElement('span');
+    urgentBtn.className = 'node-view-meta-toggle' + (node.urgent === '1' ? ' active' : '');
+    urgentBtn.innerHTML = '\uD83D\uDD25 ' + (node.urgent === '1' ? 'Yes' : 'No');
+    urgentBtn.onclick = function() {
+      node.urgent = node.urgent === '1' ? '0' : '1';
+      this.className = 'node-view-meta-toggle' + (node.urgent === '1' ? ' active' : '');
+      this.innerHTML = '\uD83D\uDD25 ' + (node.urgent === '1' ? 'Yes' : 'No');
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    };
+    meta.appendChild(treeView._metaItem('Urgent', urgentBtn));
+
+    // --- Billable toggle ---
+    var billableBtn = document.createElement('span');
+    var isBillable = node.billable !== '0';
+    billableBtn.className = 'node-view-meta-toggle' + (isBillable ? ' active' : '');
+    billableBtn.innerHTML = '<i class="fa fa-money"></i> ' + (isBillable ? 'Yes' : 'No');
+    billableBtn.onclick = function() {
+      var nowBillable = node.billable === '0';
+      node.billable = nowBillable ? '1' : '0';
+      this.className = 'node-view-meta-toggle' + (nowBillable ? ' active' : '');
+      this.innerHTML = '<i class="fa fa-money"></i> ' + (nowBillable ? 'Yes' : 'No');
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    };
+    meta.appendChild(treeView._metaItem('Billable', billableBtn));
   } else {
     // Folder metadata
     var childCount = (node.childOrder || []).length;
