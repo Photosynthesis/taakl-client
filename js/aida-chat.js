@@ -15,7 +15,7 @@
 
 var aidaConfig = {
   defaultUrl: 'https://aida.taakl.app',
-  defaultKey: 'c7d6c3a04af5500ae7b6b0b87f21b18f4bfe81a6a7ac617dbc4fd2f04314915d',
+  defaultKey: '',
 
   getUrl: function() {
     return localStorage.aidaApiUrl || aidaConfig.defaultUrl;
@@ -58,7 +58,7 @@ aidaApi._request = function(method, path, data, callback) {
 };
 
 aidaApi.fetchHistory = function(callback) {
-  aidaApi._request('GET', '/api/v1/messages/history?limit=50', null, callback);
+  aidaApi._request('GET', '/api/v1/messages/history?limit=30', null, callback);
 };
 
 aidaApi.fetchPending = function(callback) {
@@ -345,16 +345,15 @@ aidaChat.show = function() {
   aidaApi.fetchHistory(function(err, result) {
     if (err) {
       aidaChat._showSystemMessage('Could not load history: ' + err);
-      // Still try to connect WebSocket
       aidaWs.connect();
       return;
     }
     var msgs = (result && result.messages) ? result.messages : [];
-    // Add in chronological order
-    for (var i = 0; i < msgs.length; i++) {
-      aidaChat.addMessage(msgs[i]);
-    }
-    // Connect WebSocket after history loaded
+    // Client-side cap: keep only the most recent 30
+    if (msgs.length > 30) msgs = msgs.slice(msgs.length - 30);
+    aidaChat._addMessageBatch(msgs);
+    // Scroll after browser has laid out the DOM
+    requestAnimationFrame(function() { aidaChat._scrollToBottom(); });
     aidaWs.connect();
   });
 
@@ -530,6 +529,21 @@ aidaChat.addMessage = function(msg) {
     container.appendChild(el);
     aidaChat._scrollToBottom();
   }
+};
+
+aidaChat._addMessageBatch = function(msgs) {
+  var container = gebi('aida-messages');
+  if (!container) return;
+  var frag = document.createDocumentFragment();
+  for (var i = 0; i < msgs.length; i++) {
+    var msg = msgs[i];
+    if (!msg || !msg.id || aidaChat._messageIds[msg.id]) continue;
+    aidaChat._messageIds[msg.id] = true;
+    aidaChat.messages.push(msg);
+    var el = aidaChat._renderMessage(msg);
+    if (el) frag.appendChild(el);
+  }
+  container.appendChild(frag);
 };
 
 aidaChat._showSystemMessage = function(text) {
