@@ -210,6 +210,9 @@
           </button>
         </div>
 
+        <!-- Human-approval gate cards (Part B; inert until server flag on) -->
+        <div id="aida-approvals"></div>
+
         <!-- Scrollable message area -->
         <div id="aida-messages"></div>
 
@@ -222,6 +225,9 @@
         <!-- Input area -->
         <div id="aida-input-bar">
           <textarea id="aida-input" placeholder="Message AIDA..." rows="1"></textarea>
+          <button id="aida-mic-btn" onclick="aidaChat.toggleRecording()" title="Record voice">
+            <i class="fa fa-microphone"></i>
+          </button>
           <button id="aida-send-btn" onclick="aidaChat.sendMessage()">
             <i class="fa fa-paper-plane"></i>
           </button>

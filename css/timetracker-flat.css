@@ -2051,6 +2051,105 @@ color: #000;
   gap: 8px;
 }
 
+/* Approval gate cards (Part B) */
+#aida-approvals {
+  flex-shrink: 0;
+}
+
+.aida-approval-card {
+  border: 1px solid #e0b84a;
+  background: #fdf7e6;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.aida-approval-header {
+  font-weight: bold;
+  color: #9a6b00;
+  margin-bottom: 6px;
+}
+
+.aida-approval-header i {
+  margin-right: 6px;
+}
+
+.aida-approval-summary {
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.aida-approval-details {
+  background: #fff;
+  border: 1px solid #eadfbf;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 0.9em;
+}
+
+.aida-approval-detail-row {
+  word-break: break-all;
+  margin-bottom: 2px;
+}
+
+.aida-approval-detail-label {
+  color: #888;
+}
+
+.aida-approval-detail-value {
+  color: #222;
+}
+
+.aida-approval-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #eadfbf;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #333;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.aida-approval-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.aida-approval-btn {
+  padding: 7px 16px;
+  border: 1px solid #bbb;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95em;
+}
+
+.aida-approval-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.aida-approval-approve {
+  border-color: #6aa84f;
+  color: #3d7020;
+}
+
+.aida-approval-approve:hover {
+  background: #eef7e8;
+}
+
+.aida-approval-reject {
+  border-color: #d4a0a0;
+  color: #a44;
+}
+
+.aida-approval-reject:hover {
+  background: #fdf0f0;
+}
+
 /* Typing indicator */
 #aida-typing {
   padding: 6px 10px;
@@ -2124,6 +2223,44 @@ color: #000;
 #aida-send-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+#aida-mic-btn {
+  padding: 10px 14px;
+  border: 1px solid #bbb;
+  background: #ddd;
+  cursor: pointer;
+  font-size: 1em;
+  color: #555;
+  border-radius: 4px;
+  align-self: flex-end;
+}
+
+#aida-mic-btn:hover {
+  background: #ccc;
+}
+
+#aida-mic-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Active recording: red, pulsing */
+#aida-mic-btn.recording {
+  background: #e74c3c;
+  border-color: #c0392b;
+  color: #fff;
+  animation: aida-mic-pulse 1.2s ease-in-out infinite;
+}
+
+#aida-mic-btn.transcribing {
+  color: #888;
+}
+
+@keyframes aida-mic-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
 
 /* Mobile adjustments */

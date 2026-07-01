@@ -30,7 +30,8 @@ var aidaConfig = {
 
 var aidaApi = {};
 
-aidaApi._request = function(method, path, data, callback) {
+// callback signature: callback(err, result, statusCode)
+aidaApi._request = function(method, path, data, callback, timeout) {
   var opts = {
     url: aidaConfig.getUrl() + path,
     type: method,
@@ -39,7 +40,7 @@ aidaApi._request = function(method, path, data, callback) {
       'X-API-Key': aidaConfig.getKey()
     },
     success: function(result) {
-      if (callback) callback(null, result);
+      if (callback) callback(null, result, 200);
     },
     error: function(xhr, opts, statusText) {
       var errMsg = statusText || 'Request failed';
@@ -48,9 +49,10 @@ aidaApi._request = function(method, path, data, callback) {
         if (body.message) errMsg = body.message;
         if (body.detail) errMsg = body.detail;
       } catch(e) {}
-      if (callback) callback(errMsg, null);
+      if (callback) callback(errMsg, null, xhr.status);
     }
   };
+  if (timeout) opts.timeout = timeout;
   if (data) {
     opts.data = JSON.stringify(data);
   }
@@ -66,7 +68,28 @@ aidaApi.fetchPending = function(callback) {
 };
 
 aidaApi.sendMessage = function(content, callback) {
-  aidaApi._request('POST', '/api/v1/messages/send', {content: content}, callback);
+  // A5: an agent turn can take minutes, so give the synchronous send a very
+  // long timeout. A1/A3 (reconnect + pending pull) are the real backstop if
+  // the connection is cut before the reply returns.
+  aidaApi._request('POST', '/api/v1/messages/send', {content: content}, callback, 300000);
+};
+
+/* ---- Approval gate (Part B) ---- */
+
+aidaApi.fetchPendingApprovals = function(callback) {
+  aidaApi._request('GET', '/api/v1/approvals/pending', null, callback);
+};
+
+aidaApi.getApproval = function(id, callback) {
+  aidaApi._request('GET', '/api/v1/approvals/' + encodeURIComponent(id), null, callback);
+};
+
+aidaApi.approveRequest = function(id, callback) {
+  aidaApi._request('POST', '/api/v1/approvals/' + encodeURIComponent(id) + '/approve', null, callback);
+};
+
+aidaApi.rejectRequest = function(id, callback) {
+  aidaApi._request('POST', '/api/v1/approvals/' + encodeURIComponent(id) + '/reject', null, callback);
 };
 
 aidaApi.triggerCommand = function(name, callback) {
@@ -81,6 +104,36 @@ aidaApi.draftAction = function(draftId, action, editedContent, callback) {
   aidaApi._request('POST', '/api/v1/drafts/action', body, callback);
 };
 
+// Upload a recorded audio blob for transcription. Sent as multipart/form-data
+// so the API key stays server-side (the backend calls the speech-to-text
+// provider). Returns { text: "..." } on success.
+aidaApi.transcribe = function(blob, filename, callback) {
+  var form = new FormData();
+  form.append('audio', blob, filename);
+  ajaxReq({
+    url: aidaConfig.getUrl() + '/api/v1/transcribe',
+    type: 'POST',
+    // No contentType: let the browser set the multipart boundary header.
+    headers: {
+      'X-API-Key': aidaConfig.getKey()
+    },
+    data: form,
+    timeout: 60000,
+    success: function(result) {
+      if (callback) callback(null, result);
+    },
+    error: function(xhr, opts, statusText) {
+      var errMsg = statusText || 'Transcription failed';
+      try {
+        var body = JSON.parse(xhr.responseText);
+        if (body.message) errMsg = body.message;
+        if (body.detail) errMsg = body.detail;
+      } catch(e) {}
+      if (callback) callback(errMsg, null);
+    }
+  });
+};
+
 
 /* ###################### WEBSOCKET MANAGER ###################### */
 
@@ -90,8 +143,8 @@ aidaWs._socket = null;
 aidaWs._keepaliveInterval = null;
 aidaWs._pongTimeout = null;
 aidaWs._reconnectTimer = null;
-aidaWs._retryDelay = 1000;
-aidaWs._maxRetryDelay = 30000;
+aidaWs._retryDelay = 500;
+aidaWs._maxRetryDelay = 10000;
 aidaWs._intentionalClose = false;
 aidaWs._authenticated = false;
 
@@ -115,7 +168,7 @@ aidaWs.connect = function() {
   }
 
   aidaWs._socket.onopen = function() {
-    aidaWs._retryDelay = 1000;
+    aidaWs._retryDelay = 500;
     aidaWs._authenticate();
   };
 
@@ -155,7 +208,7 @@ aidaWs.disconnect = function() {
     aidaWs._socket = null;
   }
   aidaWs._authenticated = false;
-  aidaWs._retryDelay = 1000;
+  aidaWs._retryDelay = 500;
 };
 
 aidaWs.send = function(obj) {
@@ -177,8 +230,10 @@ aidaWs._handleMessage = function(data) {
         aidaWs._authenticated = true;
         aidaChat.setConnectionStatus('connected');
         aidaWs._startKeepalive();
-        // Fetch pending messages after auth to catch up
+        // A1: on every (re)connect, pull anything queued while we were away so
+        // a reply generated during a disconnect shows up within seconds.
         aidaChat._fetchPendingMessages();
+        aidaApprovals.fetchPending();
       } else {
         aidaChat.setConnectionStatus('disconnected');
         aidaChat._showSystemMessage('Authentication failed. Check your API key in Settings.');
@@ -186,18 +241,16 @@ aidaWs._handleMessage = function(data) {
       break;
 
     case 'message':
-      aidaChat.addMessage({
-        id: data.id,
-        role: data.role || 'assistant',
-        type: data.msg_type || 'chat',
-        content: data.content,
-        metadata: data.metadata || null,
-        created_at: new Date().toISOString()
-      });
+      aidaWs._renderIncoming(data);
       break;
 
     case 'typing':
       aidaChat._setTyping(data.status);
+      break;
+
+    case 'approval_request':
+      // Part B — a pending human-approval gate request.
+      aidaApprovals.handlePush(data.approval);
       break;
 
     case 'pong':
@@ -210,20 +263,42 @@ aidaWs._handleMessage = function(data) {
     case 'error':
       aidaChat._showSystemMessage('Error: ' + (data.message || 'Unknown error'));
       break;
+
+    default:
+      // Defense-in-depth (§2.3): the envelope is normalized to type:"message",
+      // but still accept any frame carrying both role and content as a chat
+      // message. Dedupe by id keeps this safe.
+      if (data.role && typeof data.content === 'string') {
+        aidaWs._renderIncoming(data);
+      }
   }
+};
+
+aidaWs._renderIncoming = function(data) {
+  aidaChat.addMessage({
+    id: data.id,
+    role: data.role || 'assistant',
+    type: data.msg_type || 'chat',
+    content: data.content,
+    metadata: data.metadata || null,
+    created_at: data.created_at || new Date().toISOString()
+  });
 };
 
 aidaWs._startKeepalive = function() {
   aidaWs._stopKeepalive();
+  // A2: ping every ~22s to keep the socket alive through proxies across a
+  // multi-minute turn; if no pong arrives within ~10s the connection is dead.
   aidaWs._keepaliveInterval = setInterval(function() {
     if (!aidaWs.send({type: 'ping'})) return;
+    if (aidaWs._pongTimeout) clearTimeout(aidaWs._pongTimeout);
     aidaWs._pongTimeout = setTimeout(function() {
-      // No pong received — connection is dead
+      // No pong received — treat as disconnected and reconnect.
       if (aidaWs._socket) {
         aidaWs._socket.close();
       }
-    }, 5000);
-  }, 30000);
+    }, 10000);
+  }, 22000);
 };
 
 aidaWs._stopKeepalive = function() {
@@ -241,12 +316,16 @@ aidaWs._scheduleReconnect = function() {
   if (aidaWs._intentionalClose) return;
   if (aidaWs._reconnectTimer) return;
 
+  // A1: exponential backoff (0.5s → 1s → 2s → … cap 10s) plus jitter so a
+  // fleet of reconnecting clients doesn't stampede the server in lockstep.
+  var jitter = Math.floor(Math.random() * 400);
+  var delay = aidaWs._retryDelay + jitter;
+
   aidaWs._reconnectTimer = setTimeout(function() {
     aidaWs._reconnectTimer = null;
     aidaWs.connect();
-  }, aidaWs._retryDelay);
+  }, delay);
 
-  // Exponential backoff
   aidaWs._retryDelay = Math.min(aidaWs._retryDelay * 2, aidaWs._maxRetryDelay);
 };
 
@@ -322,6 +401,15 @@ aidaChat._messageIds = {};
 aidaChat._isTyping = false;
 aidaChat._sendQueue = [];
 
+// A4: "thinking…" placeholder state machine
+aidaChat._turnOutstanding = false;
+aidaChat._failsafeTimer = null;
+aidaChat._FAILSAFE_MS = 300000; // 5 min
+
+// Backstop poll for pending messages/approvals while the panel is open
+aidaChat._pollTimer = null;
+aidaChat._POLL_MS = 30000;
+
 
 /* ---- View Lifecycle ---- */
 
@@ -330,6 +418,8 @@ aidaChat.show = function() {
   aidaChat.messages = [];
   aidaChat._messageIds = {};
   aidaChat._isTyping = false;
+  aidaChat._clearThinking();
+  aidaApprovals.reset();
 
   // Clear message area
   var msgContainer = gebi('aida-messages');
@@ -337,6 +427,18 @@ aidaChat.show = function() {
 
   // Set up input handlers
   aidaChat._initInput();
+
+  // A1: reconnect the moment the tab comes back to the foreground.
+  document.addEventListener('visibilitychange', aidaChat._onVisibility);
+
+  // Backstop poll (in addition to the WS push + reconnect pulls).
+  if (aidaChat._pollTimer) clearInterval(aidaChat._pollTimer);
+  aidaChat._pollTimer = setInterval(function() {
+    if (aidaWs._authenticated) {
+      aidaChat._fetchPendingMessages();
+      aidaApprovals.fetchPending();
+    }
+  }, aidaChat._POLL_MS);
 
   // Set initial connection status
   aidaChat.setConnectionStatus('connecting');
@@ -363,11 +465,32 @@ aidaChat.show = function() {
 };
 
 aidaChat.hide = function() {
+  // Stop any in-progress recording without sending it for transcription
+  aidaChat._abortRecording();
+
   // Disconnect WebSocket
   aidaWs.disconnect();
 
+  // Tear down timers/listeners
+  document.removeEventListener('visibilitychange', aidaChat._onVisibility);
+  if (aidaChat._pollTimer) {
+    clearInterval(aidaChat._pollTimer);
+    aidaChat._pollTimer = null;
+  }
+  aidaChat._clearThinking();
+  aidaApprovals.reset();
+
   // Clean up event watchers
   removeEventWatchers('aidaChat');
+};
+
+aidaChat._onVisibility = function() {
+  if (document.visibilityState !== 'visible') return;
+  // If the socket isn't open/connecting, reconnect immediately.
+  if (!aidaWs._socket || aidaWs._socket.readyState > 1) {
+    aidaWs._retryDelay = 500;
+    aidaWs.connect();
+  }
 };
 
 aidaChat.update = function() {
@@ -416,6 +539,185 @@ aidaChat._initInput = function() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
   });
+
+  // Hide the mic button if this browser can't record audio
+  if (!aidaChat._voiceSupported()) {
+    var micBtn = gebi('aida-mic-btn');
+    if (micBtn) micBtn.style.display = 'none';
+  }
+};
+
+
+/* ---- Voice input (record -> transcribe -> drop into the input box) ---- */
+
+aidaChat._recorder = null;
+aidaChat._recStream = null;
+aidaChat._recChunks = [];
+aidaChat._recording = false;
+
+aidaChat._voiceSupported = function() {
+  return !!(navigator.mediaDevices &&
+            navigator.mediaDevices.getUserMedia &&
+            typeof MediaRecorder !== 'undefined');
+};
+
+aidaChat.toggleRecording = function() {
+  if (aidaChat._recording) {
+    aidaChat._stopRecording();
+  } else {
+    aidaChat._startRecording();
+  }
+};
+
+aidaChat._startRecording = function() {
+  if (!aidaChat._voiceSupported()) {
+    aidaChat._showSystemMessage('Voice input is not supported in this browser.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
+    aidaChat._recStream = stream;
+    aidaChat._recChunks = [];
+
+    var rec;
+    try {
+      rec = new MediaRecorder(stream);
+    } catch(e) {
+      aidaChat._cleanupRecording();
+      aidaChat._showSystemMessage('Could not start recording: ' + e.message);
+      return;
+    }
+    aidaChat._recorder = rec;
+
+    rec.ondataavailable = function(e) {
+      if (e.data && e.data.size > 0) aidaChat._recChunks.push(e.data);
+    };
+    rec.onstop = function() {
+      aidaChat._handleRecordingStop();
+    };
+
+    rec.start();
+    aidaChat._recording = true;
+    aidaChat._setMicState('recording');
+  }).catch(function(err) {
+    aidaChat._cleanupRecording();
+    var msg = (err && err.name === 'NotAllowedError')
+      ? 'Microphone permission denied.'
+      : 'Could not access microphone.';
+    aidaChat._showSystemMessage(msg);
+  });
+};
+
+aidaChat._stopRecording = function() {
+  if (aidaChat._recorder && aidaChat._recorder.state !== 'inactive') {
+    aidaChat._recording = false;
+    aidaChat._setMicState('transcribing');
+    aidaChat._recorder.stop(); // fires onstop -> _handleRecordingStop
+  } else {
+    aidaChat._cleanupRecording();
+  }
+};
+
+// Stop recording without transcribing (used when leaving the view).
+aidaChat._abortRecording = function() {
+  if (aidaChat._recorder && aidaChat._recorder.state !== 'inactive') {
+    aidaChat._recorder.onstop = null;
+    try { aidaChat._recorder.stop(); } catch(e) {}
+  }
+  aidaChat._cleanupRecording();
+};
+
+aidaChat._handleRecordingStop = function() {
+  var chunks = aidaChat._recChunks;
+  var mime = (aidaChat._recorder && aidaChat._recorder.mimeType)
+    ? aidaChat._recorder.mimeType : 'audio/webm';
+
+  // Release the microphone now that we have the data
+  aidaChat._stopStream();
+  aidaChat._recChunks = [];
+
+  if (!chunks.length) {
+    aidaChat._setMicState('idle');
+    return;
+  }
+
+  var blob = new Blob(chunks, {type: mime});
+
+  // Pick a filename extension the backend / STT provider will recognise.
+  var ext = 'webm';
+  if (mime.indexOf('mp4') !== -1 || mime.indexOf('aac') !== -1 || mime.indexOf('m4a') !== -1) {
+    ext = 'm4a';
+  } else if (mime.indexOf('ogg') !== -1) {
+    ext = 'ogg';
+  } else if (mime.indexOf('wav') !== -1) {
+    ext = 'wav';
+  }
+
+  aidaApi.transcribe(blob, 'recording.' + ext, function(err, result) {
+    aidaChat._setMicState('idle');
+    if (err) {
+      aidaChat._showSystemMessage('Transcription failed: ' + err);
+      return;
+    }
+    var text = (result && (result.text || result.transcript)) || '';
+    text = text.trim();
+    if (!text) {
+      aidaChat._showSystemMessage('No speech detected.');
+      return;
+    }
+    aidaChat._insertTranscript(text);
+  });
+};
+
+// Append transcribed text to whatever is already in the input box, so you
+// can review/edit before sending (deliberately does NOT auto-send).
+aidaChat._insertTranscript = function(text) {
+  var input = gebi('aida-input');
+  if (!input) return;
+  var existing = input.value.trim();
+  input.value = existing ? (existing + ' ' + text) : text;
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.focus();
+  try { input.setSelectionRange(input.value.length, input.value.length); } catch(e) {}
+};
+
+aidaChat._stopStream = function() {
+  if (aidaChat._recStream) {
+    var tracks = aidaChat._recStream.getTracks();
+    for (var i = 0; i < tracks.length; i++) tracks[i].stop();
+    aidaChat._recStream = null;
+  }
+};
+
+aidaChat._cleanupRecording = function() {
+  aidaChat._recording = false;
+  aidaChat._stopStream();
+  aidaChat._recorder = null;
+  aidaChat._recChunks = [];
+  aidaChat._setMicState('idle');
+};
+
+aidaChat._setMicState = function(state) {
+  var btn = gebi('aida-mic-btn');
+  if (!btn) return;
+  var icon = btn.querySelector('i');
+  btn.classList.remove('recording', 'transcribing');
+
+  if (state === 'recording') {
+    btn.classList.add('recording');
+    btn.disabled = false;
+    btn.title = 'Stop recording';
+    if (icon) icon.className = 'fa fa-stop';
+  } else if (state === 'transcribing') {
+    btn.classList.add('transcribing');
+    btn.disabled = true;
+    btn.title = 'Transcribing…';
+    if (icon) icon.className = 'fa fa-spinner fa-spin';
+  } else { // idle
+    btn.disabled = false;
+    btn.title = 'Record voice';
+    if (icon) icon.className = 'fa fa-microphone';
+  }
 };
 
 
@@ -457,12 +759,17 @@ aidaChat.sendMessage = function() {
   };
   aidaChat.addMessage(userMsg);
 
+  // A4: a turn is now outstanding — show the "thinking…" placeholder and arm
+  // the failsafe so the spinner can never stick.
+  aidaChat._showThinking();
+
   // Send via WebSocket if connected, else REST fallback
   var sent = aidaWs.send({type: 'message', content: text});
   if (!sent) {
     // REST fallback
     aidaApi.sendMessage(text, function(err, result) {
       if (err) {
+        aidaChat._clearThinking();
         aidaChat._showSystemMessage('Failed to send: ' + err);
         return;
       }
@@ -522,6 +829,14 @@ aidaChat.addMessage = function(msg) {
 
   aidaChat.messages.push(msg);
 
+  // A4: any assistant chat reply (live or via pending) resolves an outstanding
+  // turn — clear the "thinking…" placeholder.
+  var role = msg.role || 'assistant';
+  var kind = msg.type || msg.msg_type || 'chat';
+  if (role !== 'user' && role !== 'system' && kind === 'chat') {
+    aidaChat._clearThinking();
+  }
+
   // Render and append
   var el = aidaChat._renderMessage(msg);
   var container = gebi('aida-messages');
@@ -567,17 +882,56 @@ aidaChat._scrollToBottom = function() {
 
 /* ---- Typing indicator ---- */
 
+// Server typing frames: typing:true (re-sent ~every 15s as a heartbeat) means
+// "still working" — refresh the placeholder; typing:false means the turn ended.
 aidaChat._setTyping = function(isTyping) {
   aidaChat._isTyping = isTyping;
+  if (isTyping) {
+    aidaChat._showThinking();
+  } else {
+    aidaChat._clearThinking();
+  }
+};
+
+// Show / refresh the "AIDA is thinking…" placeholder and (re)arm the failsafe.
+// Idempotent: repeated calls never stack multiple placeholders.
+aidaChat._showThinking = function() {
+  aidaChat._turnOutstanding = true;
   var indicator = gebi('aida-typing');
   if (indicator) {
-    indicator.style.display = isTyping ? 'block' : 'none';
+    indicator.innerHTML =
+      '<span class="aida-typing-dots"><span>.</span><span>.</span><span>.</span></span> AIDA is thinking...';
+    indicator.style.display = 'block';
   }
-  // Disable/enable input while typing
-  var sendBtn = gebi('aida-send-btn');
-  if (sendBtn) {
-    sendBtn.disabled = isTyping;
+  aidaChat._scrollToBottom();
+
+  if (aidaChat._failsafeTimer) clearTimeout(aidaChat._failsafeTimer);
+  aidaChat._failsafeTimer = setTimeout(aidaChat._onThinkingFailsafe, aidaChat._FAILSAFE_MS);
+};
+
+// Clear the placeholder and disarm the failsafe.
+aidaChat._clearThinking = function() {
+  aidaChat._turnOutstanding = false;
+  if (aidaChat._failsafeTimer) {
+    clearTimeout(aidaChat._failsafeTimer);
+    aidaChat._failsafeTimer = null;
   }
+  var indicator = gebi('aida-typing');
+  if (indicator) indicator.style.display = 'none';
+};
+
+// Failsafe: never leave a spinner up indefinitely. Swap it for soft copy and
+// pull pending once more; the reconnect/backstop polls keep looking after that.
+aidaChat._onThinkingFailsafe = function() {
+  aidaChat._failsafeTimer = null;
+  if (!aidaChat._turnOutstanding) return;
+  var indicator = gebi('aida-typing');
+  if (indicator) {
+    indicator.innerHTML =
+      'This is taking longer than expected — it’ll appear here when it’s ready.';
+    indicator.style.display = 'block';
+  }
+  aidaChat._fetchPendingMessages();
 };
 
 
@@ -818,4 +1172,218 @@ aidaChat.saveSettings = function() {
     localStorage.aidaApiKey = keyInput.value.trim();
   }
   setFeedback('AIDA settings saved');
+};
+
+
+/* ###################### APPROVAL GATE (Part B) ###################### */
+/*
+ * Human-approval UI for off-allowlist agent actions (web fetches / emails).
+ * AIDA blocks the agent turn (up to 120s) waiting for an Approve/Reject
+ * decision made here, out-of-band and authenticated, so a prompt injection
+ * can't approve on Adam's behalf.
+ *
+ * Requests arrive via the chat WebSocket (`approval_request` frame) and are
+ * also backfilled from GET /approvals/pending on every (re)connect and on the
+ * periodic backstop poll. Cards self-expire after 120s.
+ *
+ * Dormant until the AIDA server runs with APPROVALS_ENABLED=true — inert
+ * until then (no endpoints are exercised).
+ */
+
+var aidaApprovals = {};
+
+aidaApprovals._cards = {};          // id -> { data, timer }
+aidaApprovals._EXPIRY_MS = 120000;  // server default approval_timeout_seconds
+
+// Clear all cards and their timers (view teardown / reset).
+aidaApprovals.reset = function() {
+  for (var id in aidaApprovals._cards) {
+    if (aidaApprovals._cards.hasOwnProperty(id) && aidaApprovals._cards[id].timer) {
+      clearTimeout(aidaApprovals._cards[id].timer);
+    }
+  }
+  aidaApprovals._cards = {};
+  var container = gebi('aida-approvals');
+  if (container) container.innerHTML = '';
+};
+
+// Backfill path: pull anything awaiting a decision (on connect / poll).
+aidaApprovals.fetchPending = function() {
+  aidaApi.fetchPendingApprovals(function(err, result) {
+    if (err) return;
+    var list = (result && result.approvals) ? result.approvals : [];
+    for (var i = 0; i < list.length; i++) {
+      aidaApprovals.handlePush(list[i]);
+    }
+  });
+};
+
+// Render a request (from a WS push or a backfill). Dedupes by id.
+aidaApprovals.handlePush = function(approval) {
+  if (!approval || !approval.id) return;
+  // Only pending requests are actionable; anything decided/expired clears.
+  if (approval.status && approval.status !== 'pending') {
+    aidaApprovals._removeCard(approval.id);
+    return;
+  }
+  if (aidaApprovals._cards[approval.id]) return; // already shown
+  aidaApprovals._renderCard(approval);
+};
+
+aidaApprovals._renderCard = function(approval) {
+  var container = gebi('aida-approvals');
+  if (!container) return;
+
+  var card = document.createElement('div');
+  card.className = 'aida-approval-card';
+  card.setAttribute('data-approval-id', approval.id);
+
+  var header = document.createElement('div');
+  header.className = 'aida-approval-header';
+  var iconClass = approval.kind === 'send_email' ? 'fa-envelope' : 'fa-globe';
+  var icon = document.createElement('i');
+  icon.className = 'fa ' + iconClass;
+  header.appendChild(icon);
+  header.appendChild(document.createTextNode(' Approval needed'));
+  card.appendChild(header);
+
+  // `summary` is documented safe-to-render, but use textContent anyway.
+  var summary = document.createElement('div');
+  summary.className = 'aida-approval-summary';
+  summary.textContent = approval.summary || '';
+  card.appendChild(summary);
+
+  var details = aidaApprovals._renderDetails(approval);
+  if (details) card.appendChild(details);
+
+  var btnRow = document.createElement('div');
+  btnRow.className = 'aida-approval-btns';
+
+  var approveBtn = document.createElement('button');
+  approveBtn.className = 'aida-approval-btn aida-approval-approve';
+  approveBtn.innerHTML = '<i class="fa fa-check"></i> Approve';
+  approveBtn.onclick = function() { aidaApprovals._decide(approval.id, 'approve'); };
+
+  var rejectBtn = document.createElement('button');
+  rejectBtn.className = 'aida-approval-btn aida-approval-reject';
+  rejectBtn.innerHTML = '<i class="fa fa-times"></i> Reject';
+  rejectBtn.onclick = function() { aidaApprovals._decide(approval.id, 'reject'); };
+
+  btnRow.appendChild(approveBtn);
+  btnRow.appendChild(rejectBtn);
+  card.appendChild(btnRow);
+
+  container.appendChild(card);
+
+  // Self-expiry after 120s from creation (fail-closed, matches the server).
+  var remaining = aidaApprovals._EXPIRY_MS;
+  if (approval.created_at) {
+    var created = new Date(approval.created_at).getTime();
+    if (!isNaN(created)) {
+      remaining = Math.max(0, aidaApprovals._EXPIRY_MS - (Date.now() - created));
+    }
+  }
+  var timer = setTimeout(function() { aidaApprovals._expire(approval.id); }, remaining);
+  aidaApprovals._cards[approval.id] = { data: approval, timer: timer };
+};
+
+// All `details` fields originate from untrusted web/email content — render as
+// escaped plain text via textContent, never as HTML, never auto-navigable.
+aidaApprovals._renderDetails = function(approval) {
+  var d = approval.details || {};
+  var wrap = document.createElement('div');
+  wrap.className = 'aida-approval-details';
+
+  if (approval.kind === 'web_fetch') {
+    wrap.appendChild(aidaApprovals._detailRow('URL', d.url || ''));
+    if (d.host) wrap.appendChild(aidaApprovals._detailRow('Host', d.host));
+  } else if (approval.kind === 'send_email') {
+    wrap.appendChild(aidaApprovals._detailRow('To', d.to || ''));
+    wrap.appendChild(aidaApprovals._detailRow('Subject', d.subject || ''));
+    if (d.body_preview) {
+      var body = document.createElement('div');
+      body.className = 'aida-approval-body';
+      body.textContent = d.body_preview;
+      wrap.appendChild(body);
+    }
+  } else {
+    // Unknown kind — dump whatever details exist, still escaped.
+    for (var k in d) {
+      if (d.hasOwnProperty(k)) {
+        aidaApprovals._appendRow(wrap, k, d[k]);
+      }
+    }
+  }
+  return wrap;
+};
+
+aidaApprovals._appendRow = function(wrap, label, value) {
+  var v = (value === null || typeof value === 'undefined') ? '' : String(value);
+  wrap.appendChild(aidaApprovals._detailRow(label, v));
+};
+
+aidaApprovals._detailRow = function(label, value) {
+  var row = document.createElement('div');
+  row.className = 'aida-approval-detail-row';
+  var l = document.createElement('span');
+  l.className = 'aida-approval-detail-label';
+  l.textContent = label + ': ';
+  var v = document.createElement('span');
+  v.className = 'aida-approval-detail-value';
+  v.textContent = value;
+  row.appendChild(l);
+  row.appendChild(v);
+  return row;
+};
+
+aidaApprovals._decide = function(id, action) {
+  var card = aidaApprovals._cardEl(id);
+  if (card) {
+    var btns = card.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+  }
+
+  var fn = (action === 'approve') ? aidaApi.approveRequest : aidaApi.rejectRequest;
+  fn(id, function(err, result, status) {
+    if (err) {
+      // 409 → already decided/expired/unknown: clear the card, don't error.
+      if (status === 409) {
+        aidaApprovals._removeCard(id);
+        return;
+      }
+      // Otherwise re-enable so Adam can retry.
+      var c = aidaApprovals._cardEl(id);
+      if (c) {
+        var b = c.querySelectorAll('button');
+        for (var j = 0; j < b.length; j++) b[j].disabled = false;
+      }
+      aidaChat._showSystemMessage('Could not ' + action + ' request: ' + err);
+      return;
+    }
+    // 200 — optimistically remove; the agent's next chat reply reflects it.
+    aidaApprovals._removeCard(id);
+  });
+};
+
+// 120s elapsed with no server confirmation → treat as expired and clear.
+aidaApprovals._expire = function(id) {
+  aidaApprovals._removeCard(id);
+};
+
+aidaApprovals._cardEl = function(id) {
+  var container = gebi('aida-approvals');
+  if (!container) return null;
+  var cards = container.querySelectorAll('.aida-approval-card');
+  for (var i = 0; i < cards.length; i++) {
+    if (cards[i].getAttribute('data-approval-id') === id) return cards[i];
+  }
+  return null;
+};
+
+aidaApprovals._removeCard = function(id) {
+  var c = aidaApprovals._cards[id];
+  if (c && c.timer) clearTimeout(c.timer);
+  delete aidaApprovals._cards[id];
+  var el = aidaApprovals._cardEl(id);
+  if (el && el.parentNode) el.parentNode.removeChild(el);
 };
