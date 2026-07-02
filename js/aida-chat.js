@@ -454,8 +454,8 @@ aidaChat.show = function() {
     // Client-side cap: keep only the most recent 30
     if (msgs.length > 30) msgs = msgs.slice(msgs.length - 30);
     aidaChat._addMessageBatch(msgs);
-    // Scroll after browser has laid out the DOM
-    requestAnimationFrame(function() { aidaChat._scrollToBottom(); });
+    // Land at the most recent message once the DOM has actually laid out.
+    aidaChat._scrollToBottomSoon();
     aidaWs.connect();
   });
 
@@ -877,6 +877,19 @@ aidaChat._scrollToBottom = function() {
   if (container) {
     container.scrollTop = container.scrollHeight;
   }
+};
+
+// Scroll to the newest message once the browser has laid out the content.
+// A single rAF can fire before a freshly-appended batch has reflowed, so we
+// scroll across two frames plus a short timeout as a safety net (e.g. after a
+// view-slide transition or late-loading icon fonts settle the height).
+aidaChat._scrollToBottomSoon = function() {
+  aidaChat._scrollToBottom();
+  requestAnimationFrame(function() {
+    aidaChat._scrollToBottom();
+    requestAnimationFrame(function() { aidaChat._scrollToBottom(); });
+  });
+  setTimeout(aidaChat._scrollToBottom, 120);
 };
 
 
