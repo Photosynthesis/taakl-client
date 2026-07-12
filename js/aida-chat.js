@@ -480,6 +480,13 @@ aidaChat.hide = function() {
   aidaChat._clearThinking();
   aidaApprovals.reset();
 
+  // Stop any in-flight initial-load scroll pin.
+  if (aidaChat._scrollPinRaf) {
+    cancelAnimationFrame(aidaChat._scrollPinRaf);
+    aidaChat._scrollPinRaf = null;
+  }
+  aidaChat._stopScrollPin();
+
   // Clean up event watchers
   removeEventWatchers('aidaChat');
 };
@@ -879,18 +886,65 @@ aidaChat._scrollToBottom = function() {
   }
 };
 
-// Scroll to the newest message once the browser has laid out the content.
-// A single rAF can fire before a freshly-appended batch has reflowed, so we
-// scroll across two frames plus a short timeout as a safety net (e.g. after a
-// view-slide transition or late-loading icon fonts settle the height).
+// Land on the newest message on first load and KEEP it there while the layout
+// settles. A fixed rAF/timeout burst isn't enough: right after the view-slide
+// transition the flex height may still be 0, and markdown content, late icon
+// fonts and images can grow the scroll height tens/hundreds of ms later —
+// pushing the newest message back below the fold and leaving the panel at the
+// top. So we pin the container to the bottom on every frame for a short window,
+// re-pin whenever an image inside finishes loading, and bail out the moment the
+// user scrolls up themselves (so this never fights a deliberate scroll-back).
+aidaChat._SCROLL_PIN_MS = 800;
+
 aidaChat._scrollToBottomSoon = function() {
-  aidaChat._scrollToBottom();
-  requestAnimationFrame(function() {
-    aidaChat._scrollToBottom();
-    requestAnimationFrame(function() { aidaChat._scrollToBottom(); });
-  });
-  setTimeout(aidaChat._scrollToBottom, 120);
+  var container = gebi('aida-messages');
+  if (!container) return;
+
+  // Cancel any pin already in flight (e.g. re-entering the view quickly).
+  aidaChat._stopScrollPin();
+
+  var deadline = new Date().getTime() + aidaChat._SCROLL_PIN_MS;
+  var userScrolled = false;
+  var expectedTop = 0; // the scrollTop value we last set ourselves
+
+  var pinToBottom = function() {
+    container.scrollTop = container.scrollHeight;
+    expectedTop = container.scrollTop; // clamped value the browser settled on
+  };
+
+  var onUserScroll = function() {
+    // Appending/reflow keeps scrollTop at the value we set (only scrollHeight
+    // grows), so it never dips below expectedTop. A genuine scroll-up does —
+    // that's the user grabbing the bar, so stop fighting them.
+    if (container.scrollTop < expectedTop - 4) userScrolled = true;
+  };
+  container.addEventListener('scroll', onUserScroll);
+
+  var onImgLoad = function() { if (!userScrolled) pinToBottom(); };
+  var imgs = container.getElementsByTagName('img');
+  for (var i = 0; i < imgs.length; i++) {
+    if (!imgs[i].complete) imgs[i].addEventListener('load', onImgLoad);
+  }
+
+  var stop = function() {
+    container.removeEventListener('scroll', onUserScroll);
+    for (var j = 0; j < imgs.length; j++) imgs[j].removeEventListener('load', onImgLoad);
+    aidaChat._scrollPinRaf = null;
+    aidaChat._stopScrollPin = function() {};
+  };
+  aidaChat._stopScrollPin = stop;
+
+  var tick = function() {
+    if (userScrolled || new Date().getTime() > deadline) { stop(); return; }
+    pinToBottom();
+    aidaChat._scrollPinRaf = requestAnimationFrame(tick);
+  };
+  pinToBottom();
+  aidaChat._scrollPinRaf = requestAnimationFrame(tick);
 };
+
+// No-op until a pin is armed; replaced by the live stopper above while pinning.
+aidaChat._stopScrollPin = function() {};
 
 
 /* ---- Typing indicator ---- */
