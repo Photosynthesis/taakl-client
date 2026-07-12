@@ -1282,8 +1282,11 @@ function setView(view){
       viewTransitioning = true;
       var goingRight = newIdx > oldIdx; // new view is to the right
 
-      // Show new view
-      newEl.style.display = 'block';
+      // Show new view. Clear the inline display rather than forcing 'block' so
+      // the stylesheet decides how each view lays out — the assistant view needs
+      // display:flex (its inline block was overriding it and breaking the
+      // internal message scroll); every other view falls back to block anyway.
+      newEl.style.display = '';
 
       // Add transitioning + animation classes
       oldEl.classList.add('view-transitioning');
@@ -1317,7 +1320,9 @@ function setView(view){
       var viewElements = document.getElementsByClassName("view-container");
       for (var i = 0; i < viewElements.length; ++i){
         if(viewElements[i].id == view+"-view"){
-          viewElements[i].style.display = "block";
+          // Clear inline display so per-view stylesheet layout applies
+          // (assistant view = flex); others default to block.
+          viewElements[i].style.display = "";
         }else{
           viewElements[i].style.display = "none";
         }
