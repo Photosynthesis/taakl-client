@@ -2287,3 +2287,43 @@ color: #000;
     font-size: 0.85em;
   }
 }
+
+/* ============ Share links ============ */
+
+#share-link-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: #333;
+  background: #fafafa;
+}
+
+#share-link-input:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+.settings-share-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.settings-share-name {
+  flex: 1;
+  word-break: break-word;
+}
+
+.settings-share-meta {
+  color: #999;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.settings-share-revoke {
+  font-size: 0.85em;
+}

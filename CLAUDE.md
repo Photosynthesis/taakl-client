@@ -103,6 +103,45 @@ Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (ac
 - camelCase for functions and variables
 - UUIDs generated client-side for node and session IDs
 
+## Deployment
+
+The client is hosted on DreamHost as a static site. No build step — just git pull.
+
+**Host:** `iad1-shared-d12-02.dreamhost.com`
+**User:** `taakl`
+**Site root:** `~/taakl.app/`
+**SSH credentials:** stored in `../ssh_info.md` (parent timetracker directory)
+
+To deploy, SSH into the server and pull the desired branch:
+
+```bash
+ssh -o PubkeyAuthentication=no taakl@iad1-shared-d12-02.dreamhost.com
+cd ~/taakl.app
+git fetch origin
+git checkout <branch-name>
+git pull origin <branch-name>
+```
+
+Password auth is required (no pubkey). Use `sshpass` or `pexpect` if automating. Changes are live immediately after pull — no restart or cache invalidation needed.
+
+## Share Links (read-only branch sharing)
+
+Any node branch can be shared read-only via a secret link (Share button in the
+node drilldown header; management under Tweak → Shared links). The client only
+creates/lists/revokes links via `/api/shares`; the **viewer page is a separate
+standalone app in the server repo** (`taakl-server/share/`) that deliberately
+duplicates a few rendering behaviors from this codebase. If you change any of
+these, port the change by hand to `taakl-server/share/share.js` (its header
+comment lists the mapping):
+
+- `treeView._doUpdate` search-match logic (name substring + ancestor marking)
+- `treeView._doUpdate` Recent-filter logic and `analyze.getDateRange` presets
+- `calculateNodeTime` roll-up semantics
+- `prettyTime` formatting
+- `treeView.renderNode` filter order (hide-done → search → recent, force-expand)
+
+Shares serve **server-side** data — viewers see the owner's last-synced state.
+
 ## Special Syntax in Task Names
 
 - `(30m)` or `(1.5h)` — time estimate, parsed and stored as seconds

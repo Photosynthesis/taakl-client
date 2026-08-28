@@ -14,7 +14,8 @@ var serverConfig = {
     me: '/api/me',
     sync: '/api/sync',
     syncFull: '/api/sync/full',
-    settings: '/api/settings'
+    settings: '/api/settings',
+    shares: '/api/shares'
   }
 };
 
@@ -1453,6 +1454,181 @@ function getEventWatchers(owner){
 }
 
 
+/* ############################# SHARE LINK FUNCTIONS ############################# */
+
+// Create a read-only share link for a node branch and show it in a modal.
+// Shares serve server-side data, so viewers see the owner's last-synced state.
+function shareNode(nodeId) {
+  if (!isLoggedIn()) {
+    showAuthModal('login');
+    return;
+  }
+
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  showShareModal(node.name || '(unnamed)');
+
+  ajaxReq({
+    url: serverConfig.baseUrl + serverConfig.endpoints.shares,
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    data: JSON.stringify({ nodeUuid: nodeId }),
+    success: function(result) {
+      if (result.success && result.url) {
+        var input = gebi('share-link-input');
+        if (input) {
+          input.value = result.url;
+        }
+        var copyBtn = gebi('share-copy-btn');
+        if (copyBtn) copyBtn.style.display = '';
+        // Push any pending local changes so viewers see recent edits
+        var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
+                              (typeof synchQueue !== 'undefined' && synchQueue.queue && synchQueue.queue.length > 0);
+        if (hasLocalChanges) synchToServer();
+      } else {
+        shareModalError(result.error || 'Could not create share link');
+      }
+    },
+    error: function(xhr) {
+      var msg = 'Could not create share link';
+      var code = null;
+      try {
+        var resp = JSON.parse(xhr.responseText);
+        msg = resp.error || msg;
+        code = resp.code;
+      } catch(e) {}
+      if (code === 'node_not_synced') {
+        msg = 'This item has not been synced yet. Syncing now — try Share again in a moment.';
+        synchToServer();
+      }
+      shareModalError(msg);
+    }
+  });
+}
+
+function showShareModal(nodeName) {
+  var html = '<div id="share-modal">';
+  html += '<h3>Share “' + escapeHtml(nodeName) + '”</h3>';
+  html += '<div id="share-modal-error" style="color: red; margin-bottom: 10px; display: none;"></div>';
+  html += '<input type="text" id="share-link-input" readonly placeholder="Creating link…" onclick="this.select()" />';
+  html += '<div style="margin-top: 12px;">';
+  html += '<a class="button" id="share-copy-btn" style="display:none" onclick="copyShareLink()">Copy Link</a>';
+  html += '<a class="button" onclick="hideModal()" style="margin-left: 10px;">Done</a>';
+  html += '</div>';
+  html += '<div style="margin-top: 12px; font-size: 12px; color: #666;">';
+  html += 'Anyone with this link can view this branch (read-only). ';
+  html += 'Viewers see your last-synced data. Manage links under Tweak → Shared links.';
+  html += '</div>';
+  html += '</div>';
+
+  gebi('edit-popup').innerHTML = html;
+  gebi('modal-bg').style.display = 'block';
+  gebi('edit-popup').style.display = 'block';
+}
+
+function shareModalError(message) {
+  var el = gebi('share-modal-error');
+  if (el) {
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+}
+
+function copyShareLink() {
+  var input = gebi('share-link-input');
+  if (!input || !input.value) return;
+  input.select();
+
+  var done = function() { setFeedback('Share link copied'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(input.value).then(done, function() {
+      document.execCommand('copy');
+      done();
+    });
+  } else {
+    document.execCommand('copy');
+    done();
+  }
+}
+
+// Settings > Shared links
+function loadSharesList() {
+  var container = gebi('settings-shares-list');
+  if (!container) return;
+
+  if (!isLoggedIn()) {
+    container.textContent = 'Login to manage shared links.';
+    return;
+  }
+
+  container.textContent = 'Loading…';
+
+  ajaxReq({
+    url: serverConfig.baseUrl + serverConfig.endpoints.shares,
+    type: 'GET',
+    cache: false,
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    success: function(result) {
+      if (!result.success) {
+        container.textContent = 'Could not load shared links.';
+        return;
+      }
+      var shares = result.shares || [];
+      if (shares.length === 0) {
+        container.textContent = 'No active shared links.';
+        return;
+      }
+
+      container.innerHTML = '';
+      for (var i = 0; i < shares.length; i++) {
+        (function(share) {
+          var row = document.createElement('div');
+          row.className = 'settings-share-row';
+
+          var name = document.createElement('span');
+          name.className = 'settings-share-name';
+          name.textContent = share.node_name || '(deleted item)';
+          row.appendChild(name);
+
+          var meta = document.createElement('span');
+          meta.className = 'settings-share-meta';
+          meta.textContent = 'created ' + String(share.created_at || '').slice(0, 10) +
+            ' · ' + (share.access_count || 0) + ' views';
+          row.appendChild(meta);
+
+          var btn = document.createElement('a');
+          btn.className = 'button settings-share-revoke';
+          btn.textContent = 'Turn off';
+          btn.onclick = function() { revokeShare(share.id); };
+          row.appendChild(btn);
+
+          container.appendChild(row);
+        })(shares[i]);
+      }
+    },
+    error: function() {
+      container.textContent = 'Could not load shared links.';
+    }
+  });
+}
+
+function revokeShare(shareId) {
+  ajaxReq({
+    url: serverConfig.baseUrl + serverConfig.endpoints.shares + '/' + shareId,
+    type: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    success: function() {
+      setFeedback('Share link turned off');
+      loadSharesList();
+    },
+    error: function() {
+      setFeedback('Could not turn off share link', 'error');
+    }
+  });
+}
+
 /* ################################ TREE VIEW (v2) - Outliner Style ################################ */
 
 var treeView = {};
@@ -1865,6 +2041,15 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
       meta.appendChild(treeView._metaItem('Total estimate', prettyTime(totalEstimate)));
     }
   }
+
+  // --- Share link ---
+  var shareBtn = document.createElement('span');
+  shareBtn.className = 'node-view-meta-toggle';
+  shareBtn.innerHTML = '<i class="fa fa-link"></i> Share link…';
+  shareBtn.onclick = function() {
+    shareNode(nodeId);
+  };
+  meta.appendChild(treeView._metaItem('Share', shareBtn));
 
   if (meta.children.length > 0) {
     header.appendChild(meta);
@@ -3774,6 +3959,8 @@ settingsView.show = function(){
   if (typeof aidaChat.loadSettings === 'function') {
     aidaChat.loadSettings();
   }
+
+  loadSharesList();
 
 }
 
