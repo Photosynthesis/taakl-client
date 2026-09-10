@@ -1195,7 +1195,8 @@ function showGeneralEditForm(type,id){
     }
 
     if(field.type == "text"){
-         edit_element.insertAdjacentHTML('beforeend', '<div class="edit-field">'+field.label+' <input type="text" value="'+val+'" id="'+type+'-'+key+'-edit-input"/></div>');
+         var extraBtn = (type == 'session' && key == 'start_time') ? ' <a class="button" onClick="fillLastSessionEnd(\''+id+'\')">Last session end</a>' : '';
+         edit_element.insertAdjacentHTML('beforeend', '<div class="edit-field">'+field.label+' <input type="text" value="'+val+'" id="'+type+'-'+key+'-edit-input"/>'+extraBtn+'</div>');
     }else if(field.type == "select"){
 
       var fieldDiv = document.createElement('div');
@@ -5270,6 +5271,33 @@ function getSessionById(id) {
     }
   }
   return {};
+}
+
+/* Latest end_time (any node) at or before the given session's own end,
+   so back-editing an old session finds the session that preceded it. */
+function getPreviousSessionEnd(sessionId) {
+  var current = getSessionById(sessionId);
+  var ref = current.end_time || current.start_time || "9999";
+  var best = null;
+  for (var nodeId in ttData.nodes) {
+    var sessions = ttData.nodes[nodeId].sessions;
+    if (!sessions) continue;
+    for (var sid in sessions) {
+      if (sid === sessionId) continue;
+      var end = sessions[sid].end_time;
+      if (end && end <= ref && (!best || end > best)) best = end;
+    }
+  }
+  return best;
+}
+
+function fillLastSessionEnd(sessionId) {
+  var end = getPreviousSessionEnd(sessionId);
+  if (end) {
+    gebi('session-start_time-edit-input').value = end;
+  } else {
+    setFeedback('No previous session found', 'error');
+  }
 }
 
 
