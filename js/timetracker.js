@@ -2154,6 +2154,7 @@ treeView.show = function() {
 };
 
 treeView.hide = function() {
+  treeView.closeNodeMenu();
   removeEventWatchers('treeView');
 };
 
@@ -2172,6 +2173,7 @@ treeView._doUpdate = function() {
   var container = gebi('node-tree');
   if (!container) return;
 
+  treeView.closeNodeMenu();
   treeView._isRendering = true;
   container.innerHTML = '';
 
@@ -2315,11 +2317,8 @@ treeView.renderNode = function(container, nodeId, depth) {
 
   // Skip filters for provisional nodes
   if (!isProvisional) {
-    // Apply filters
-    if (treeView.hideCompleted && isTask && isCompleted) {
-      // Check if any descendants match (for folders)
-      if (!hasChildren) return;
-    }
+    // Apply filters (a completed parent hides its whole subtree)
+    if (treeView.hideCompleted && isCompleted) return;
 
     if (treeView._searchMatchIds) {
       if (!treeView._searchMatchIds[nodeId]) return;
@@ -2557,6 +2556,19 @@ treeView.renderNode = function(container, nodeId, depth) {
       };
       row.appendChild(play);
     }
+
+    // Three-dot menu for parent nodes (mark complete/incomplete)
+    if (!isTask) {
+      var menuBtn = document.createElement('span');
+      menuBtn.className = 'tree-menu-btn';
+      menuBtn.innerHTML = '&#8942;';
+      menuBtn.title = 'More actions';
+      menuBtn.onclick = function(e) {
+        e.stopPropagation();
+        treeView.openNodeMenu(nodeId, this);
+      };
+      row.appendChild(menuBtn);
+    }
   }
 
   container.appendChild(row);
@@ -2779,8 +2791,8 @@ treeView.getVisibleNodeIds = function() {
       var n = getNode(nid);
       if (!n) continue;
 
-      // Skip filtered
-      if (treeView.hideCompleted && nodeIsTask(nid) && n.status === 'completed') continue;
+      // Skip filtered (completed parents hide their whole subtree)
+      if (treeView.hideCompleted && n.status === 'completed') continue;
 
       ids.push(nid);
 
@@ -2844,6 +2856,120 @@ treeView.toggleComplete = function(nodeId, checkbox) {
   if (treeView.hideCompleted) {
     treeView.update();
   }
+};
+
+/**
+ * Count descendant leaf tasks that are not completed (provisional nodes ignored)
+ */
+function countIncompleteSubtasks(nodeId) {
+  var node = getNode(nodeId);
+  if (!node || !node.childOrder) return 0;
+  var count = 0;
+  for (var i = 0; i < node.childOrder.length; i++) {
+    var child = getNode(node.childOrder[i]);
+    if (!child || child.provisional) continue;
+    if (nodeIsTask(child.id)) {
+      if (child.status !== 'completed') count++;
+    } else {
+      count += countIncompleteSubtasks(child.id);
+    }
+  }
+  return count;
+}
+
+// Mark a parent node complete/incomplete (from the three-dot menu)
+treeView.setNodeComplete = function(nodeId, completed) {
+  var node = getNode(nodeId);
+  if (!node) return;
+  if (completed) {
+    node.status = 'completed';
+    recordCompletion(node);
+  } else {
+    node.status = 'inProcess';
+    undoCompletion(node);
+  }
+  ttSave();
+  emitEvent('node', 'updated', nodeId);
+  treeView.update();
+};
+
+// --- Three-dot menu for parent rows ---
+treeView.closeNodeMenu = function() {
+  var menu = gebi('tree-node-menu');
+  if (menu) menu.parentNode.removeChild(menu);
+  if (treeView._menuCloseHandler) {
+    document.removeEventListener('click', treeView._menuCloseHandler);
+    document.removeEventListener('keydown', treeView._menuKeyHandler);
+    treeView._menuCloseHandler = null;
+    treeView._menuKeyHandler = null;
+  }
+};
+
+treeView.openNodeMenu = function(nodeId, btn) {
+  var node = getNode(nodeId);
+  if (!node) return;
+
+  // Toggle: clicking the same button while open closes the menu
+  var existing = gebi('tree-node-menu');
+  var wasForNode = existing && existing.getAttribute('data-node-id') === nodeId;
+  treeView.closeNodeMenu();
+  if (wasForNode) return;
+
+  var menu = document.createElement('div');
+  menu.id = 'tree-node-menu';
+  menu.className = 'tree-node-menu';
+  menu.setAttribute('data-node-id', nodeId);
+
+  var isCompleted = node.status === 'completed';
+  var item = document.createElement('div');
+  item.className = 'tree-node-menu-item';
+
+  if (isCompleted) {
+    item.textContent = 'Mark incomplete';
+    item.onclick = function(e) {
+      e.stopPropagation();
+      treeView.closeNodeMenu();
+      treeView.setNodeComplete(nodeId, false);
+    };
+    menu.appendChild(item);
+  } else {
+    var incomplete = countIncompleteSubtasks(nodeId);
+    item.textContent = 'Mark complete';
+    if (incomplete > 0) {
+      item.className += ' disabled';
+      menu.appendChild(item);
+      var hint = document.createElement('div');
+      hint.className = 'tree-node-menu-hint';
+      hint.textContent = incomplete + ' incomplete subtask' + (incomplete === 1 ? '' : 's');
+      menu.appendChild(hint);
+    } else {
+      item.onclick = function(e) {
+        e.stopPropagation();
+        treeView.closeNodeMenu();
+        treeView.setNodeComplete(nodeId, true);
+      };
+      menu.appendChild(item);
+    }
+  }
+
+  // Position below the button (absolute in page coordinates)
+  var rect = btn.getBoundingClientRect();
+  menu.style.top = (rect.bottom + window.pageYOffset + 2) + 'px';
+  document.body.appendChild(menu);
+  var left = rect.right + window.pageXOffset - menu.offsetWidth;
+  menu.style.left = Math.max(4, left) + 'px';
+
+  // Close on outside click or Escape (deferred so this click doesn't trigger it)
+  treeView._menuCloseHandler = function(e) {
+    if (!menu.contains(e.target)) treeView.closeNodeMenu();
+  };
+  treeView._menuKeyHandler = function(e) {
+    if (e.key === 'Escape') treeView.closeNodeMenu();
+  };
+  setTimeout(function() {
+    document.addEventListener('click', treeView._menuCloseHandler);
+    document.addEventListener('keydown', treeView._menuKeyHandler);
+  }, 0);
 };
 
 treeView.toggleStar = function(nodeId) {
