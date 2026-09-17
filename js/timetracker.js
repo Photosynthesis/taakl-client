@@ -644,7 +644,7 @@ function ttInitCore(){
    updateAuthUI();
 
    if(getSetting("auto_synch") == "yes" && isLoggedIn()){
-     synchToServer();
+     synchToServer(true); // silent: icon animation only, no feedback message
      startAutoSync();
    }
 
@@ -4847,7 +4847,7 @@ function startAutoSync() {
     var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
                           (synchQueue.queue && synchQueue.queue.length > 0);
     if (hasLocalChanges) {
-      synchToServer();
+      synchToServer(true); // silent: icon animation only, no feedback message
     }
   }, 30000);
 }
@@ -4859,8 +4859,8 @@ function stopAutoSync() {
   }
 }
 
-// Main sync function
-function synchToServer() {
+// Main sync function. silent = no feedback messages (auto sync); icon still animates.
+function synchToServer(silent) {
   if (!isLoggedIn()) {
     showAuthModal('login');
     return;
@@ -4876,24 +4876,24 @@ function synchToServer() {
   // If there are local changes, use incremental sync to avoid overwriting server data
   if (hasLocalChanges) {
     console.log('[SYNC] Has local changes, using incremental sync');
-    synchIncremental();
+    synchIncremental(silent);
     return;
   }
 
   // No local changes - safe to do full download from server
   console.log('[SYNC] No local changes, downloading from server');
-  synchFromServer();
+  synchFromServer(silent);
 }
 
 // Download data from server
-function synchFromServer() {
+function synchFromServer(silent) {
   if (!isLoggedIn()) {
-    setFeedback('Please login to sync', 'error');
+    if (!silent) setFeedback('Please login to sync', 'error');
     synchIconStatus("error");
     return;
   }
 
-  setFeedback('Synching from server...');
+  if (!silent) setFeedback('Synching from server...');
   synchIconStatus("synching");
 
   ajaxReq({
@@ -4926,13 +4926,13 @@ function synchFromServer() {
         mergeServerData(serverData);
 
         ttSave();
-        setFeedback('Data successfully synced from server.');
+        if (!silent) setFeedback('Data successfully synced from server.');
         synchIconStatus("done");
         syncInProgress = false;
         emitEvent('server', 'synch');
 
       } else {
-        setFeedback('Sync completed (no server data)', 'notice');
+        if (!silent) setFeedback('Sync completed (no server data)', 'notice');
         synchIconStatus("done");
         syncInProgress = false;
       }
@@ -4940,13 +4940,14 @@ function synchFromServer() {
     error: function(xhr, ajaxOptions, thrownError) {
       console.log('[SYNC] Download error:', xhr.status, thrownError);
       if (xhr.status === 401) {
+        // Always show session expiry — it needs user action
         setFeedback('Session expired. Please login again.', 'error');
         authToken = null;
         delete localStorage.authToken;
         if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
-        setFeedback('Error synching from server: ' + thrownError, 'error');
+        if (!silent) setFeedback('Error synching from server: ' + thrownError, 'error');
       }
       synchIconStatus("error");
       syncInProgress = false;
@@ -4955,15 +4956,15 @@ function synchFromServer() {
 }
 
 // Incremental sync - sends only queued changes
-function synchIncremental() {
+function synchIncremental(silent) {
   if (!isLoggedIn()) {
-    setFeedback('Please login to sync', 'error');
+    if (!silent) setFeedback('Please login to sync', 'error');
     return;
   }
 
   if (!synchQueue.queue || synchQueue.queue.length === 0) {
     console.log('[SYNC] No changes to sync');
-    synchFromServer(); // Still fetch updates
+    synchFromServer(silent); // Still fetch updates
     return;
   }
 
@@ -5003,30 +5004,33 @@ function synchIncremental() {
         }
 
         ttSave();
-        var msg = 'Synced';
-        if (result.stats) {
-          if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
-          if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
+        if (!silent) {
+          var msg = 'Synced';
+          if (result.stats) {
+            if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
+            if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
+          }
+          setFeedback(msg);
         }
-        setFeedback(msg);
         synchIconStatus("done");
         syncInProgress = false;
         emitEvent('server', 'synch');
       } else {
-        setFeedback('Sync error: ' + (result.error || 'Unknown'), 'error');
+        if (!silent) setFeedback('Sync error: ' + (result.error || 'Unknown'), 'error');
         synchIconStatus("error");
         syncInProgress = false;
       }
     },
     error: function(xhr, ajaxOptions, thrownError) {
       if (xhr.status === 401) {
+        // Always show session expiry — it needs user action
         setFeedback('Session expired. Please login again.', 'error');
         authToken = null;
         delete localStorage.authToken;
         if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
-        setFeedback('Sync error: ' + thrownError, 'error');
+        if (!silent) setFeedback('Sync error: ' + thrownError, 'error');
       }
       synchIconStatus("error");
       syncInProgress = false;
