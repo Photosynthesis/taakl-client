@@ -69,7 +69,7 @@
 
         <!-- Minimal controls bar -->
         <div id="tree-controls">
-          <input type="search" id="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
+          <input type="search" id="tree-search" name="tree-search" placeholder="Filter..." oninput="treeView.filterBySearch()" />
           <label class="tree-filter-label"><input type="checkbox" id="tree-hide-completed" checked onchange="treeView.toggleHideCompleted()" /> Hide done</label>
           <button class="range-btn" id="tree-recent-btn" onclick="treeView.toggleRecent()">Recent</button>
         </div>
@@ -122,12 +122,12 @@
             <h4 style="color: #666; margin-bottom: 1em;">AIDA Assistant</h4>
             <div class="settings-item">
               <div class="settings-label">API URL</div>
-              <div class="settings-input"><input type="text" id="aida-settings-url" placeholder="https://aida.taakl.com" /></div>
+              <div class="settings-input"><input type="text" id="aida-settings-url" name="aida-api-url" autocomplete="url" placeholder="https://aida.taakl.com" /></div>
               <div class="clearfix"></div>
             </div>
             <div class="settings-item">
               <div class="settings-label">API Key</div>
-              <div class="settings-input"><input type="password" id="aida-settings-key" placeholder="API key" /></div>
+              <div class="settings-input"><input type="password" id="aida-settings-key" name="aida-api-key" placeholder="API key" /></div>
               <div class="clearfix"></div>
             </div>
             <a href="#void" onClick="aidaChat.saveSettings()" class="button">Save AIDA Settings</a>
