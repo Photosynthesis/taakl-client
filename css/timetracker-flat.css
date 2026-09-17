@@ -807,6 +807,8 @@ color: #000;
 }
 
 #tree-search {
+  -webkit-appearance: none;
+  appearance: none;
   padding: 6px 10px;
   width: 180px;
   border: 1px solid #ddd;
