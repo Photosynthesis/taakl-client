@@ -227,6 +227,91 @@ input.button-end-field:active{
   width: 96%;
 }
 
+/* Collapse/expand toggle on the session timer */
+#session-collapse-btn{
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  padding: 8px;
+  color: #aaaaaa;
+  cursor: pointer;
+  z-index: 1;
+}
+
+#session-collapse-btn:hover{
+  color: #666666;
+}
+
+/* Collapsed mode: session timer becomes a bar pinned to the top */
+#active-session.collapsed{
+  height: auto;
+  bottom: auto;
+  border-bottom: 1px solid #dddddd;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+#active-session.collapsed .centered-box{
+  position: static;
+  -webkit-transform: none;
+  transform: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 5px 44px 5px 12px; /* right padding clears the expand icon */
+}
+
+#active-session.collapsed #session-collapse-btn{
+  top: 50%;
+  -webkit-transform: translateY(-50%);
+  transform: translateY(-50%);
+  padding: 6px;
+}
+
+#active-session.collapsed #current-info{
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+#active-session.collapsed #current_duration{
+  width: auto;
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+#active-session.collapsed #session-estimate,
+#active-session.collapsed #session-notes-input,
+#active-session.collapsed .session-complete-btn{
+  display: none;
+}
+
+#active-session.collapsed #session-buttons{
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+#active-session.collapsed .session-end-btn{
+  flex: none;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Push app content below the collapsed bar */
+body.session-collapsed #container{
+  padding-top: 44px;
+}
+
 /* Session current duration - fill width */
 #current_duration {
   width: 100%;
@@ -987,6 +1072,22 @@ color: #000;
 
 .tree-play:hover {
   color: #5a5;
+}
+
+/* Node with a session in progress: always-visible indicator */
+.tree-play.tracking {
+  opacity: 1;
+  color: #d9534f;
+}
+
+.tree-play.tracking:hover {
+  color: #b52b27;
+}
+
+/* Session-history row for the running session */
+.node-view-session-row.session-running {
+  color: #d9534f;
+  font-style: italic;
 }
 
 /* Star */

@@ -681,7 +681,59 @@ function continueSession(){
 }
 
 
+/* --- Collapsible session timer --- */
+
+function isSessionCollapsed(){
+  return localStorage.ttSessionCollapsed === '1';
+}
+
+function toggleSessionCollapse(){
+  if(isSessionCollapsed()){
+    expandSessionTimer();
+  }else{
+    collapseSessionTimer();
+  }
+}
+
+function collapseSessionTimer(){
+  localStorage.ttSessionCollapsed = '1';
+  applySessionLayout();
+}
+
+function expandSessionTimer(){
+  delete localStorage.ttSessionCollapsed;
+  applySessionLayout();
+}
+
+// Sync the #active-session overlay and page layout with the collapsed flag
+function applySessionLayout(){
+  var overlay = gebi('active-session');
+  if(!overlay) return;
+
+  var collapsed = isSessionCollapsed();
+  overlay.classList.toggle('collapsed', collapsed);
+  document.body.classList.toggle('session-collapsed', collapsed);
+
+  var btn = gebi('session-collapse-btn');
+  if(btn){
+    btn.className = 'fa ' + (collapsed ? 'fa-expand' : 'fa-compress');
+    btn.title = collapsed ? 'Expand timer' : 'Collapse timer';
+  }
+
+  var dur = gebi('current_duration');
+  if(dur){
+    if(collapsed){
+      dur.style.fontSize = ''; // bar mode: stylesheet owns the size
+    }else{
+      setTimeout(fitDurationText, 10);
+    }
+  }
+}
+
+
 function fitDurationText(){
+  if(isSessionCollapsed()) return;
+
   var container = document.getElementById('current_duration');
   if(!container) return;
 
@@ -722,8 +774,9 @@ function incrementCurrentDuration() {
 
     currentDurationSeconds = moment().diff(startDate)/1000;
     currentDuration = timeFromSeconds(currentDurationSeconds);
-    document.getElementById('current_duration').innerHTML = currentDuration;
-    fitDurationText();
+    var durEl = document.getElementById('current_duration');
+    if(durEl) durEl.innerHTML = currentDuration;
+    fitDurationText(); // no-op while collapsed
     document.title = currentDuration + ' - Timetracker';
 
     // Check estimate thresholds if task has an estimate
@@ -1169,6 +1222,12 @@ function showGeneralEditForm(type,id){
 
   if(!id){
     setFeedback("No item ID or current item in edit!","error");
+    return;
+  }
+
+  // The running session record is owned by the live timer — no editing until it ends
+  if(type == 'session' && current_session && id == localStorage.ttSessionId){
+    setFeedback('This session is in progress — end it before editing.', 'error');
     return;
   }
 
@@ -1703,8 +1762,9 @@ treeView._renderSessionHistory = function(nodeId) {
   for (var i = 0; i < sessionIds.length; i++) {
     var sid = sessionIds[i];
     var sess = node.sessions[sid];
+    var isRunning = current_session && sid === localStorage.ttSessionId;
     var row = document.createElement('div');
-    row.className = 'node-view-session-row';
+    row.className = 'node-view-session-row' + (isRunning ? ' session-running' : '');
     row.setAttribute('data-session-id', sid);
 
     var dateStr = sess.start_time ? moment(sess.start_time).format('MMM D, YYYY') : '';
@@ -1719,20 +1779,22 @@ treeView._renderSessionHistory = function(nodeId) {
 
     var timeRange = document.createElement('span');
     timeRange.className = 'session-time-range';
-    timeRange.textContent = startStr + ' \u2013 ' + endStr;
+    timeRange.textContent = isRunning ? startStr + ' \u2013 in progress' : startStr + ' \u2013 ' + endStr;
     row.appendChild(timeRange);
 
     var durEl = document.createElement('span');
     durEl.className = 'session-duration';
-    durEl.textContent = prettyTime(dur);
+    durEl.textContent = isRunning ? '\u2014' : prettyTime(dur);
     row.appendChild(durEl);
 
-    // Double-click to edit session
-    (function(sessionId) {
-      row.ondblclick = function() {
-        showGeneralEditForm('session', sessionId);
-      };
-    })(sid);
+    // Double-click to edit session (not while it's running)
+    if (!isRunning) {
+      (function(sessionId) {
+        row.ondblclick = function() {
+          showGeneralEditForm('session', sessionId);
+        };
+      })(sid);
+    }
 
     content.appendChild(row);
 
@@ -2549,7 +2611,9 @@ treeView.renderNode = function(container, nodeId, depth) {
       row.appendChild(urgentBtn);
 
       var play = document.createElement('i');
-      play.className = 'fa fa-play-circle tree-play';
+      var isTracking = current_session && current_node && current_node.id === nodeId;
+      play.className = isTracking ? 'fa fa-clock-o tree-play tracking' : 'fa fa-play-circle tree-play';
+      if (isTracking) play.title = 'Session in progress';
       play.onclick = function(e) {
         e.stopPropagation();
         treeView.startSession(nodeId);
@@ -3000,6 +3064,20 @@ treeView.startSession = function(nodeId) {
     return;
   }
 
+  // Already tracking this node: just re-open the full timer
+  if (current_session && current_node && current_node.id === nodeId) {
+    expandSessionTimer();
+    return;
+  }
+
+  // Another session is running (reachable while the timer is collapsed):
+  // end it before switching, keeping the collapsed bar if that's where we are
+  if (current_session) {
+    var wasCollapsed = isSessionCollapsed();
+    endNodeSession(false);
+    if (wasCollapsed) localStorage.ttSessionCollapsed = '1';
+  }
+
   current_node = node;
   current_node_path = getNodePath(nodeId);
   startNodeSession();
@@ -3177,6 +3255,7 @@ function startNodeSession() {
   counterId = setInterval(incrementCurrentDuration, 1000);
   showNodeInSession();
   ttSave();
+  treeView.update(); // show the tracking indicator on the active row
 }
 
 /**
@@ -3210,8 +3289,9 @@ function showNodeInSession() {
       '</div>';
   }
 
-  var html = '<div class="centered-box">' +
-    '<div id="current-info">' + pathStr + '</div>' +
+  var html = '<i id="session-collapse-btn" class="fa fa-compress" title="Collapse timer" onclick="toggleSessionCollapse()"></i>' +
+  '<div class="centered-box">' +
+    '<div id="current-info" onclick="if(isSessionCollapsed())expandSessionTimer()">' + pathStr + '</div>' +
     '<div id="current_duration"><span style="color:#dddddd">00:00:00</span></div>' +
     estimateHtml +
     '<div id="session-buttons">' +
@@ -3224,6 +3304,7 @@ function showNodeInSession() {
   gebi('active-session').innerHTML = html;
   gebi('active-session').style.display = 'block';
 
+  applySessionLayout();
   setTimeout(fitDurationText, 10);
   window.addEventListener('resize', fitDurationText);
 }
@@ -3288,6 +3369,7 @@ function endNodeSession(markComplete) {
 
   current_session = '';
   delete localStorage.ttSessionId;
+  delete localStorage.ttSessionCollapsed; // next session starts full-screen
   if (nativeBridge.ready) nativeBridge.persist();
 
   console.log('[SESSION END] After clearing current_session, sessions still in ttData?',
@@ -3300,6 +3382,8 @@ function endNodeSession(markComplete) {
   console.log('[SESSION END] ttSave() completed');
 
   gebi('active-session').style.display = 'none';
+  gebi('active-session').classList.remove('collapsed');
+  document.body.classList.remove('session-collapsed');
   document.title = 'Taakl';
 
   var edit_button = '<form style="display:inline"><a class="button" onClick="showGeneralEditForm(\'session\',\'' + pastSessionId + '\')">Edit session</a></form>';
@@ -3308,6 +3392,61 @@ function endNodeSession(markComplete) {
   treeView.update();
 
   emitEvent('session', 'ended');
+}
+
+/**
+ * Stop the running timer without writing session data. Used when sync reveals
+ * the tracked node/session no longer exists or was ended on another device.
+ */
+function abortNodeSession(message) {
+  clearInterval(counterId);
+  window.removeEventListener('resize', fitDurationText);
+
+  current_session = '';
+  delete localStorage.ttSessionId;
+  delete localStorage.ttSessionCollapsed;
+  if (nativeBridge.ready) nativeBridge.persist();
+
+  var overlay = gebi('active-session');
+  overlay.style.display = 'none';
+  overlay.classList.remove('collapsed');
+  document.body.classList.remove('session-collapsed');
+  document.title = 'Taakl';
+
+  if (message) setFeedback(message, 'notice');
+  treeView.update();
+}
+
+/**
+ * Re-point current_node/current_session after sync rewrites ttData.nodes.
+ * Merge can replace the node object (mergeServerData) or the whole sessions
+ * map (upsertNodeLocally), leaving the globals dangling on dead objects —
+ * mutations would then silently miss ttData.
+ */
+function refreshSessionRefs() {
+  if (!current_session) return;
+
+  var node = getNode(localStorage.ttCurrentNodeId);
+  if (!node) {
+    abortNodeSession('The task being tracked was deleted on another device — timer stopped.');
+    return;
+  }
+
+  current_node = node;
+  current_node_path = getNodePath(node.id);
+
+  var sessId = localStorage.ttSessionId;
+  if (!node.sessions) node.sessions = {};
+
+  if (node.sessions[sessId]) {
+    current_session = node.sessions[sessId];
+    if (current_session.end_time) {
+      abortNodeSession('This session was ended on another device.');
+    }
+  } else {
+    // Merge dropped the open session (server copy predates it) — restore ours
+    node.sessions[sessId] = current_session;
+  }
 }
 
 
@@ -4233,8 +4372,11 @@ todayView.createTaskElement = function(task){
   var urgentIcon = "<span class='task-urgent " + urgentClass +
     "' onclick=\"todayView.toggleNodeUrgent('" + task.id + "')\">&#128293;</span>";
 
-  // Play button
-  var playIcon = "<i onclick=\"treeView.startSession('" + task.id + "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
+  // Play button (clock indicator when this task's session is running)
+  var isTracking = current_session && current_node && current_node.id === task.id;
+  var playIcon = isTracking
+    ? "<i onclick=\"treeView.startSession('" + task.id + "')\" title='Session in progress' style='cursor:pointer; color:#d9534f;' class='fa fa-clock-o fa-lg'></i>"
+    : "<i onclick=\"treeView.startSession('" + task.id + "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
 
   // Edit handler
   var editHandler = "treeView.showEditForm('" + task.id + "')";
@@ -4924,6 +5066,7 @@ function synchFromServer(silent) {
 
         // Smart merge instead of destructive replace
         mergeServerData(serverData);
+        refreshSessionRefs();
 
         ttSave();
         if (!silent) setFeedback('Data successfully synced from server.');
@@ -4996,6 +5139,7 @@ function synchIncremental(silent) {
         // Apply server changes
         if (result.changes && result.changes.length > 0) {
           applyServerChanges(result.changes);
+          refreshSessionRefs();
         }
 
         // Merge rootOrder: preserve local ordering, incorporate server additions/deletions
@@ -5616,6 +5760,21 @@ function updateNode(id, data) {
 function deleteNode(id, cascade) {
   var node = getNode(id);
   if (!node) return false;
+
+  // Block deleting the node being tracked (or an ancestor of it, when cascading)
+  if (current_session && current_node) {
+    var deleteBlocked = id === current_node.id;
+    if (!deleteBlocked && cascade) {
+      var trackedPath = getNodePath(current_node.id);
+      for (var pi = 0; pi < trackedPath.length; pi++) {
+        if (trackedPath[pi].id === id) { deleteBlocked = true; break; }
+      }
+    }
+    if (deleteBlocked) {
+      setFeedback('A session is in progress on this task — end it before deleting.', 'error');
+      return false;
+    }
+  }
 
   // Only add delete to sync queue if node was synced (not provisional)
   // Provisional nodes were never synced, so no need to send delete
