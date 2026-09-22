@@ -4518,8 +4518,329 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
 
 /* ------------------------------ projects lens ------------------------------ */
 
+analyze.csvQuote = function(s) {
+  return '"' + String(s).replace(/"/g, '""') + '"';
+};
+
 analyze.renderProjects = function() {
-  return '<div class="rv-empty">Projects lens — coming next.</div>';
+  var range = analyze.projRangeOf();
+  var parentId = analyze.projParentId();
+  var i, j;
+
+  var sessions = analyze.getSessionsInRange(range.start, range.end);
+  var scoped = [];
+  for (i = 0; i < sessions.length; i++) {
+    if (!parentId || analyze.pathHasNode(sessions[i].path, parentId)) scoped.push(sessions[i]);
+  }
+
+  var totalAllSecs = 0;
+  for (i = 0; i < sessions.length; i++) totalAllSecs += sessions[i].durationSecs;
+
+  var totalSecs = 0;
+  var activeSet = {};
+  var live = null;
+  for (i = 0; i < scoped.length; i++) {
+    totalSecs += scoped[i].durationSecs;
+    activeSet[scoped[i].start_time.substr(0, 10)] = true;
+    if (scoped[i].live) live = scoped[i];
+  }
+  var activeDays = 0;
+  for (var ak in activeSet) activeDays++;
+  var totalDays = moment(range.end).diff(moment(range.start), 'days') + 1;
+
+  var allComps = analyze.getCompletionsInRange(range.start, range.end);
+  var comps = [];
+  for (i = 0; i < allComps.length; i++) {
+    if (!parentId || analyze.pathHasNode(allComps[i].path, parentId)) comps.push(allComps[i]);
+  }
+
+  var kids = analyze.aggregateScope(scoped, parentId);
+  for (i = 0; i < kids.length; i++) {
+    kids[i].color = kids[i].nodeId ? analyze.getNodeColor(kids[i].nodeId) : '#999999';
+  }
+
+  var html = '';
+
+  /* breadcrumb */
+  html += '<div class="rv-crumb-bar">';
+  html += '<button class="rv-crumb' + (parentId ? '' : ' rv-here') + '" onclick="analyze.projJump(0)">All</button>';
+  for (i = 0; i < analyze.projPath.length; i++) {
+    var pn = getNode(analyze.projPath[i]);
+    var here = i === analyze.projPath.length - 1;
+    html += '<span class="rv-crumb-sep">›</span>';
+    html += '<button class="rv-crumb' + (here ? ' rv-here' : '') + '" onclick="analyze.projJump(' + (i + 1) + ')">' +
+            escapeHtml(pn ? pn.name : '?') + '</button>';
+  }
+  html += '</div>';
+
+  /* hero strip */
+  var share = totalAllSecs ? Math.round(totalSecs / totalAllSecs * 100) : 0;
+  html += '<div class="rv-proj-hero">';
+  html += '<div class="rv-ph-cell rv-lead"><b>' + (totalSecs ? analyze.formatDuration(totalSecs) : '—') + '</b><span>tracked in range</span></div>';
+  html += '<div class="rv-ph-cell"><b>' + share + '%</b><span>of all tracked time</span></div>';
+  html += '<div class="rv-ph-cell"><b>' + scoped.length + '</b><span>sessions</span></div>';
+  html += '<div class="rv-ph-cell"><b>' + activeDays + '<em>/' + totalDays + '</em></b><span>active days</span></div>';
+  html += '<div class="rv-ph-cell"><b>' + (activeDays ? analyze.formatDuration(totalSecs / activeDays) : '—') + '</b><span>avg / active day</span></div>';
+  html += '<div class="rv-ph-cell"><b>' + comps.length + '</b><span>completed</span></div>';
+  html += '</div>';
+  if (live) {
+    html += '<div class="rv-live-line rv-proj-live">Tracking now — <b>' + escapeHtml(live.taskName) + '</b> · since ' +
+            analyze.fmtClock(analyze.minOfDay(live.start_time)) + '</div>';
+  }
+
+  html += '<div class="rv-proj-grid">';
+
+  /* breakdown card */
+  var anyDrill = false;
+  for (i = 0; i < kids.length; i++) {
+    if (kids[i].hasChildren) anyDrill = true;
+  }
+  html += '<div class="rv-card rv-pcard">';
+  html += '<div class="rv-pcard-head"><span class="rv-stat-label">Where the time went</span>' +
+          (anyDrill ? '<span class="rv-hint">click a row to drill in</span>' : '') + '</div>';
+  if (!kids.length) {
+    html += '<div class="rv-empty-small">No time tracked here in this range.</div>';
+  } else {
+    var maxSecs = kids[0].totalSecs;
+    for (i = 0; i < kids.length; i++) {
+      var g = kids[i];
+      var open = g.hasChildren ?
+        '<button class="rv-bd-row rv-drill" onclick="analyze.projDrill(\'' + g.nodeId + '\')">' :
+        '<div class="rv-bd-row">';
+      var close = g.hasChildren ? '</button>' : '</div>';
+      html += open;
+      html += '<span class="rv-bd-name"><i style="background:' + g.color + '"></i>' + escapeHtml(g.nodeName) +
+              (g.hasChildren ? ' <em class="rv-bd-arrow">›</em>' : '') +
+              ' <em class="rv-bd-count">' + g.sessionCount + '×</em></span>';
+      html += '<span class="rv-bd-meta"><b>' + analyze.formatDuration(g.totalSecs) + '</b> · ' +
+              (totalSecs ? Math.round(g.totalSecs / totalSecs * 100) : 0) + '%</span>';
+      html += '<span class="rv-bd-track"><em style="width:' + Math.round(g.totalSecs / maxSecs * 100) + '%;background:' + g.color + '"></em></span>';
+      html += close;
+    }
+  }
+  html += '</div>';
+
+  /* right column: trend + completed */
+  html += '<div class="rv-proj-col">';
+
+  html += '<div class="rv-card rv-pcard">';
+  html += '<div class="rv-pcard-head"><span class="rv-stat-label">Daily trend</span>' +
+          '<span class="rv-hint">stacked by the rows at left</span></div>';
+  if (!scoped.length) {
+    html += '<div class="rv-empty-small">Nothing to plot.</div>';
+  } else {
+    var dayKeys = [];
+    var dcur = moment(range.start);
+    var guard = 0;
+    while (dcur.format('YYYY-MM-DD') <= range.end && guard < 400) {
+      dayKeys.push(dcur.format('YYYY-MM-DD'));
+      dcur.add(1, 'day');
+      guard++;
+    }
+
+    var topKids = kids.slice(0, 5);
+    var topSet = {};
+    for (i = 0; i < topKids.length; i++) topSet[topKids[i].nodeId || '__direct__'] = topKids[i];
+
+    var byDay = {};
+    for (i = 0; i < scoped.length; i++) {
+      var ses = scoped[i];
+      var ck = analyze.findChildAtLevel(ses.path, parentId);
+      var key = ck || '__direct__';
+      if (!topSet[key]) key = '__other__';
+      var ds = ses.start_time.substr(0, 10);
+      if (!byDay[ds]) byDay[ds] = {};
+      byDay[ds][key] = (byDay[ds][key] || 0) + ses.durationSecs;
+    }
+
+    var maxDaySecs = 1;
+    for (i = 0; i < dayKeys.length; i++) {
+      var dTot = 0;
+      var dRow = byDay[dayKeys[i]];
+      if (dRow) for (var dk in dRow) dTot += dRow[dk];
+      if (dTot > maxDaySecs) maxDaySecs = dTot;
+    }
+
+    var stackOrder = topKids.slice();
+    stackOrder.push({ nodeId: '__other__', nodeName: 'Other', color: '#b5b5b5' });
+
+    html += '<div class="rv-trend">';
+    for (i = 0; i < dayKeys.length; i++) {
+      var colDs = dayKeys[i];
+      var colRow = byDay[colDs] || {};
+      var colTot = 0;
+      var segsHtml = '';
+      var tipLines = [];
+      for (j = 0; j < stackOrder.length; j++) {
+        var sk = stackOrder[j];
+        var skKey = j < topKids.length ? (sk.nodeId || '__direct__') : '__other__';
+        var secs = colRow[skKey];
+        if (!secs) continue;
+        colTot += secs;
+        segsHtml += '<div class="rv-tr-seg" style="height:' + (secs / maxDaySecs * 100) + '%;background:' + sk.color + '"></div>';
+        tipLines.push(sk.nodeName + ' — ' + analyze.formatDuration(secs));
+      }
+      var colTip = moment(colDs).format('ddd MMM D') +
+                   (colTot ? '\n' + analyze.formatDuration(colTot) + '\n' + tipLines.join(' · ') : '\nnothing tracked');
+      html += '<div class="rv-tr-col" title="' + analyze.escAttr(colTip) + '">' + segsHtml + '</div>';
+    }
+    html += '</div><div class="rv-tr-axis">';
+    for (i = 0; i < dayKeys.length; i++) {
+      var am = moment(dayKeys[i]);
+      var label = dayKeys.length <= 7 ? am.format('dd').charAt(0) :
+                  ((am.isoWeekday() === 1 || am.date() === 1) ? String(am.date()) : '');
+      html += '<span>' + label + '</span>';
+    }
+    html += '</div>';
+    html += '<div class="rv-trend-legend">';
+    for (i = 0; i < stackOrder.length; i++) {
+      if (i >= topKids.length && kids.length <= topKids.length) break;
+      html += '<span><i style="background:' + stackOrder[i].color + '"></i>' + escapeHtml(stackOrder[i].nodeName) + '</span>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  /* completed card */
+  html += '<div class="rv-card rv-pcard">';
+  html += '<div class="rv-stat-label">Completed in range (' + comps.length + ')</div>';
+  if (!comps.length) {
+    html += '<div class="rv-empty-small">Nothing marked complete in this range.</div>';
+  } else {
+    html += '<ul class="rv-done-list">';
+    for (i = 0; i < comps.length && i < 8; i++) {
+      var c = comps[i];
+      var crumb = analyze.pathNames(c.path, 0, c.path.length - 1);
+      html += '<li><span class="rv-done-time">' + moment(c.ds).format('MMM D') + ' ' + analyze.fmtClock(c.min) + '</span>' +
+              '<span class="rv-done-check" style="color:' + analyze.getNodeColor(c.path[0].id) + '">✓</span>' +
+              '<span>' + escapeHtml(c.name) +
+              (crumb ? '<span class="rv-done-crumb">' + escapeHtml(crumb) + '</span>' : '') + '</span></li>';
+    }
+    html += '</ul>';
+    if (comps.length > 8) html += '<div class="rv-empty-small">+' + (comps.length - 8) + ' more</div>';
+  }
+  html += '</div>';
+
+  html += '</div></div>'; /* /rv-proj-col /rv-proj-grid */
+
+  /* session ledger, grouped by immediate child = invoice line items */
+  html += analyze.ledgerHTML(kids, scoped, totalSecs, parentId, range);
+
+  return html;
+};
+
+/**
+ * The billing ledger: one group per immediate child of the scope, sessions
+ * itemized inside, billable hours honoring the round-up and billable flags.
+ */
+analyze.ledgerHTML = function(kids, scoped, totalSecs, parentId, range) {
+  var i, j;
+  var depth = analyze.projPath.length;
+  var rate = analyze.billing.rate;
+  var scopeLabel = 'all items';
+  if (parentId) {
+    var names = [];
+    for (i = 0; i < analyze.projPath.length; i++) {
+      var n = getNode(analyze.projPath[i]);
+      names.push(n ? n.name : '?');
+    }
+    scopeLabel = names.join(' › ');
+  }
+
+  analyze._csvRows = [];
+  var billTotalSecs = 0;
+
+  var html = '<div class="rv-card rv-ledger">';
+  html += '<div class="rv-ledger-head">';
+  html += '<span class="rv-stat-label">Session ledger · ' + escapeHtml(scopeLabel) + ' · grouped as line items</span>';
+  html += '<div class="rv-ledger-opts">';
+  html += '<label><input type="checkbox"' + (analyze.billing.round15 ? ' checked' : '') +
+          ' onclick="analyze.setRound(this.checked)"> Round up to 15 min</label>';
+  html += '<label><input type="checkbox"' + (analyze.billing.showNonBillable ? ' checked' : '') +
+          ' onclick="analyze.setShowNonBillable(this.checked)"> Show non-billable</label>';
+  html += '<button class="range-btn" onclick="analyze.exportCSV()">Export CSV</button>';
+  html += '</div></div>';
+
+  if (!scoped.length) {
+    html += '<div class="rv-empty-small" style="padding:15px">No sessions in this range.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  html += '<div class="rv-ledger-scroll"><table class="rv-ledger-table">';
+
+  for (i = 0; i < kids.length; i++) {
+    var g = kids[i];
+    var rows = g.sessions.slice().sort(function(a, b) {
+      return a.start_time < b.start_time ? -1 : (a.start_time > b.start_time ? 1 : 0);
+    });
+
+    var groupBillSecs = 0;
+    var nonBillCount = 0;
+    for (j = 0; j < rows.length; j++) {
+      if (analyze.sessionBillable(rows[j].path)) {
+        groupBillSecs += analyze.billSecs(rows[j].durationSecs);
+      } else {
+        nonBillCount++;
+      }
+    }
+    billTotalSecs += groupBillSecs;
+
+    html += '<tr class="rv-ld-group"><td colspan="2">' +
+            '<i class="rv-ld-dot" style="background:' + g.color + '"></i>' + escapeHtml(g.nodeName) +
+            ' <span class="rv-ld-n">' + g.sessionCount + '×</span>' +
+            (nonBillCount ? ' <span class="rv-ld-nobill-note">' + nonBillCount + ' non-billable</span>' : '') +
+            '</td>';
+    html += '<td class="rv-ld-sub" colspan="2">' + analyze.formatDuration(g.totalSecs) +
+            ' · ' + analyze.fmtDecH(groupBillSecs) + ' h' +
+            (rate > 0 ? ' · ' + analyze.formatMoney(groupBillSecs / 3600 * rate) : '') + '</td></tr>';
+
+    var relFrom = g.direct ? depth : depth + 1;
+    for (j = 0; j < rows.length; j++) {
+      var ses = rows[j];
+      var billable = analyze.sessionBillable(ses.path);
+      var bSecs = billable ? analyze.billSecs(ses.durationSecs) : 0;
+      var sMin = analyze.minOfDay(ses.start_time);
+      var eMin = analyze.minOfDay(ses.end_time);
+      var rel = relFrom < ses.path.length - 1 ? analyze.pathNames(ses.path, relFrom, ses.path.length - 1) : '';
+
+      analyze._csvRows.push([
+        analyze.csvQuote(g.nodeName),
+        ses.start_time.substr(0, 10),
+        analyze.fmtClock(sMin),
+        ses.live ? 'now' : analyze.fmtClock(eMin),
+        analyze.csvQuote(analyze.pathNames(ses.path, 0, ses.path.length)),
+        Math.round(ses.durationSecs / 60),
+        analyze.fmtDecH(bSecs)
+      ]);
+
+      if (!billable && !analyze.billing.showNonBillable) continue;
+
+      html += '<tr' + (billable ? '' : ' class="rv-ld-nobill"') + '>';
+      html += '<td class="rv-ld-time">' + moment(ses.start_time.substr(0, 10)).format('MMM DD') + ' · ' +
+              analyze.fmtClock(sMin) + '–' + (ses.live ? 'now' : analyze.fmtClock(eMin)) + '</td>';
+      html += '<td class="rv-ld-task"><b>' + escapeHtml(ses.taskName) + '</b>' +
+              (rel ? '<span>' + escapeHtml(rel) + '</span>' : '') +
+              (billable ? '' : '<span class="rv-ld-nobill-note">non-billable</span>') + '</td>';
+      html += '<td class="rv-ld-dur">' + analyze.formatDuration(ses.durationSecs) + '</td>';
+      html += '<td class="rv-ld-dec">' + (billable ? analyze.fmtDecH(bSecs) + ' h' : '—') + '</td>';
+      html += '</tr>';
+    }
+  }
+
+  html += '</table></div>';
+
+  html += '<div class="rv-ledger-foot">';
+  html += '<div class="rv-lf-item"><span>Tracked</span><b>' + analyze.formatDuration(totalSecs) + '</b></div>';
+  html += '<div class="rv-lf-item"><span>Billable</span><b>' + analyze.fmtDecH(billTotalSecs) + ' h</b></div>';
+  html += '<div class="rv-lf-item"><span>Rate / h</span><input type="number" min="0" step="1" class="rv-rate-input" value="' +
+          analyze.billing.rate + '" onchange="analyze.setRate(this.value)"></div>';
+  html += '<div class="rv-lf-item"><span>Amount</span><b>' +
+          (rate > 0 ? analyze.formatMoney(billTotalSecs / 3600 * rate) : '—') + '</b></div>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
 };
 
 
