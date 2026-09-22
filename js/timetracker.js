@@ -3453,16 +3453,16 @@ function refreshSessionRefs() {
 /* ################################ ANALYZE VIEW ################################ */
 
 // State
-analyze.preset = 'week';
-analyze.dateRange = { start: '', end: '' };
-analyze.drillPath = [];
-analyze.activeTab = 'overview';
-analyze.timelineZoom = 1;
-analyze.sessions = [];
-analyze.aggregated = [];
-analyze.chartInstance = null;
+analyze.tab = 'calendar';            // 'calendar' | 'projects'
+analyze.calView = 'day';             // 'day' | 'week' | 'month'
+analyze.anchor = '';                 // 'YYYY-MM-DD' focus date for the calendar lens
+analyze.projPath = [];               // node-id drill path for the Projects lens ([] = all)
+analyze.projPreset = 'month';        // 'week'|'lastweek'|'month'|'lastmonth'|'custom'
+analyze.customRange = { start: '', end: '' };
+analyze.billing = { round15: true, rate: 0, showNonBillable: true };
 analyze.startPicker = null;
 analyze.endPicker = null;
+analyze._csvRows = [];
 
 // Color palette for nodes (muted, deterministic)
 analyze.colorPalette = [
@@ -3532,18 +3532,32 @@ analyze.getSessionsInRange = function(start, end) {
 
     for (var sesId in node.sessions) {
       var ses = node.sessions[sesId];
-      if (!ses.start_time || !ses.end_time) continue;
+      if (!ses.start_time) continue;
+
+      // The currently running session has no end_time yet: synthesize "now"
+      // so it shows up live. Any other open-ended session is corrupt — skip.
+      var endTime = ses.end_time;
+      var live = false;
+      if (!endTime) {
+        if (localStorage.ttSessionId === sesId) {
+          endTime = moment().format('YYYY-MM-DD HH:mm:ss');
+          live = true;
+        } else {
+          continue;
+        }
+      }
       if (ses.start_time < startBound || ses.start_time > endBound) continue;
 
-      var durationSecs = timeDiffSecsFromString(ses.start_time, ses.end_time);
+      var durationSecs = timeDiffSecsFromString(ses.start_time, endTime);
 
       sessions.push({
         id: sesId,
         taskId: nodeId,
         taskName: node.name,
         start_time: ses.start_time,
-        end_time: ses.end_time,
+        end_time: endTime,
         durationSecs: durationSecs,
+        live: live,
         path: path
       });
     }
@@ -3572,35 +3586,51 @@ analyze.findChildAtLevel = function(path, parentId) {
 /**
  * Aggregate sessions by immediate children of parentId
  */
-analyze.aggregateByLevel = function(sessions, parentId) {
+analyze.aggregateScope = function(sessions, parentId) {
   var groups = {};
+  var order = [];
 
   for (var i = 0; i < sessions.length; i++) {
     var ses = sessions[i];
     var childId = analyze.findChildAtLevel(ses.path, parentId);
+    var key;
+    var direct = false;
 
-    if (!childId) continue;
+    if (childId) {
+      key = childId;
+    } else if (parentId && ses.taskId === parentId) {
+      // Session logged directly on the scope node itself
+      key = '__direct__';
+      direct = true;
+    } else {
+      continue;
+    }
 
-    if (!groups[childId]) {
-      var node = getNode(childId);
-      groups[childId] = {
-        nodeId: childId,
-        nodeName: node ? node.name : 'Unknown',
+    if (!groups[key]) {
+      var node = childId ? getNode(childId) : null;
+      groups[key] = {
+        nodeId: childId,   // null for the direct bucket
+        nodeName: direct ? 'Logged directly here' : (node ? node.name : 'Unknown'),
+        direct: direct,
         totalSecs: 0,
         sessionCount: 0,
         sessions: [],
-        isLeaf: nodeIsTask(childId)
+        hasChildren: false
       };
+      order.push(key);
     }
 
-    groups[childId].totalSecs += ses.durationSecs;
-    groups[childId].sessionCount++;
-    groups[childId].sessions.push(ses);
+    var g = groups[key];
+    g.totalSecs += ses.durationSecs;
+    g.sessionCount++;
+    g.sessions.push(ses);
+    // Drillable only if some session sits deeper than the child node itself
+    if (childId && ses.taskId !== childId) g.hasChildren = true;
   }
 
   var result = [];
-  for (var id in groups) {
-    result.push(groups[id]);
+  for (var j = 0; j < order.length; j++) {
+    result.push(groups[order[j]]);
   }
 
   result.sort(function(a, b) {
@@ -3611,11 +3641,11 @@ analyze.aggregateByLevel = function(sessions, parentId) {
 };
 
 /**
- * Get current parent ID from drill path
+ * Current Projects-lens scope node id (null = all roots)
  */
-analyze.getCurrentParentId = function() {
-  if (analyze.drillPath.length === 0) return null;
-  return analyze.drillPath[analyze.drillPath.length - 1];
+analyze.projParentId = function() {
+  if (analyze.projPath.length === 0) return null;
+  return analyze.projPath[analyze.projPath.length - 1];
 };
 
 /**
@@ -3644,21 +3674,187 @@ analyze.formatDuration = function(secs) {
 };
 
 /**
+ * Escape a string for an HTML attribute (escapeHtml doesn't cover quotes)
+ */
+analyze.escAttr = function(text) {
+  return escapeHtml(text).replace(/"/g, '&quot;');
+};
+
+/**
+ * '#rrggbb' -> 'rgba(r,g,b,a)'
+ */
+analyze.rgba = function(hex, alpha) {
+  var r = parseInt(hex.substr(1, 2), 16);
+  var g = parseInt(hex.substr(3, 2), 16);
+  var b = parseInt(hex.substr(5, 2), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+};
+
+/**
+ * 'YYYY-MM-DD HH:mm:ss' -> minutes since local midnight
+ */
+analyze.minOfDay = function(ts) {
+  return parseInt(ts.substr(11, 2), 10) * 60 + parseInt(ts.substr(14, 2), 10);
+};
+
+/**
+ * Minutes since midnight -> 'HH:MM'
+ */
+analyze.fmtClock = function(min) {
+  var h = Math.floor(min / 60);
+  var m = Math.round(min % 60);
+  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+};
+
+/**
+ * Seconds -> decimal hours string ('1.53')
+ */
+analyze.fmtDecH = function(secs) {
+  return (secs / 3600).toFixed(2);
+};
+
+/**
+ * Seconds -> short hours string ('3.2h')
+ */
+analyze.fmtH = function(secs) {
+  return (secs / 3600).toFixed(1) + 'h';
+};
+
+/**
+ * Join node names of path[from..to) with ' › '
+ */
+analyze.pathNames = function(path, from, to) {
+  var names = [];
+  for (var i = from; i < to; i++) names.push(path[i].name);
+  return names.join(' › ');
+};
+
+analyze.pathHasNode = function(path, id) {
+  for (var i = 0; i < path.length; i++) {
+    if (path[i].id === id) return true;
+  }
+  return false;
+};
+
+/**
+ * A session is billable unless any node on its path is flagged non-billable
+ */
+analyze.sessionBillable = function(path) {
+  for (var i = 0; i < path.length; i++) {
+    if (path[i].billable === '0') return false;
+  }
+  return true;
+};
+
+/**
+ * All completion events (node.completed_at entries, UTC ISO) whose *local*
+ * date falls within [start, end]. Each array entry is a separate event.
+ */
+analyze.getCompletionsInRange = function(start, end) {
+  var out = [];
+  var allNodes = ttData.nodes || {};
+
+  for (var nodeId in allNodes) {
+    var node = allNodes[nodeId];
+    if (!Array.isArray(node.completed_at) || node.completed_at.length === 0) continue;
+
+    var path = null;
+    for (var i = 0; i < node.completed_at.length; i++) {
+      var m = moment(node.completed_at[i]);
+      if (!m.isValid()) continue;
+      var ds = m.format('YYYY-MM-DD');
+      if (ds < start || ds > end) continue;
+      if (!path) path = getNodePath(nodeId);
+      out.push({
+        nodeId: nodeId,
+        name: node.name,
+        path: path,
+        ds: ds,
+        min: m.hours() * 60 + m.minutes()
+      });
+    }
+  }
+
+  out.sort(function(a, b) {
+    return a.ds === b.ds ? a.min - b.min : (a.ds < b.ds ? -1 : 1);
+  });
+  return out;
+};
+
+/**
+ * Bucket sessions + completions into per-day structures for calendar display.
+ * Sessions crossing midnight are split into one segment per day. The query
+ * starts one day early so a session that started the previous evening and ran
+ * past midnight still contributes its after-midnight segment.
+ * Returns { 'YYYY-MM-DD': { segs: [{startMin, endMin, ses}], comps: [...] } }
+ */
+analyze.getCalendarDays = function(start, end) {
+  var days = {};
+  function bucket(ds) {
+    if (!days[ds]) days[ds] = { segs: [], comps: [] };
+    return days[ds];
+  }
+
+  var queryStart = moment(start).subtract(1, 'day').format('YYYY-MM-DD');
+  var sessions = analyze.getSessionsInRange(queryStart, end);
+  for (var i = 0; i < sessions.length; i++) {
+    var ses = sessions[i];
+    var sDs = ses.start_time.substr(0, 10);
+    var eDs = ses.end_time.substr(0, 10);
+    var sMin = analyze.minOfDay(ses.start_time);
+    var eMin = analyze.minOfDay(ses.end_time);
+
+    if (sDs === eDs) {
+      if (eMin > sMin) bucket(sDs).segs.push({ startMin: sMin, endMin: eMin, ses: ses });
+    } else {
+      bucket(sDs).segs.push({ startMin: sMin, endMin: 1440, ses: ses });
+      var d = moment(sDs).add(1, 'day');
+      var guard = 0;
+      while (d.format('YYYY-MM-DD') < eDs && guard < 31) {
+        bucket(d.format('YYYY-MM-DD')).segs.push({ startMin: 0, endMin: 1440, ses: ses });
+        d.add(1, 'day');
+        guard++;
+      }
+      if (eMin > 0 && eDs <= end) bucket(eDs).segs.push({ startMin: 0, endMin: eMin, ses: ses });
+    }
+  }
+
+  var comps = analyze.getCompletionsInRange(start, end);
+  for (var j = 0; j < comps.length; j++) bucket(comps[j].ds).comps.push(comps[j]);
+
+  for (var ds in days) {
+    days[ds].segs.sort(function(a, b) { return a.startMin - b.startMin; });
+  }
+  return days;
+};
+
+/* ------------------------------ lifecycle ------------------------------ */
+
+/**
  * Show the analyze view
  */
 analyze.show = function() {
-  analyze.preset = 'week';
-  analyze.drillPath = [];
-  analyze.activeTab = 'overview';
-  analyze.timelineZoom = 1;
+  if (!analyze.anchor) analyze.anchor = moment().format('YYYY-MM-DD');
+
+  try {
+    var prefs = JSON.parse(localStorage.ttReviewPrefs || '{}');
+    if (typeof prefs.round15 === 'boolean') analyze.billing.round15 = prefs.round15;
+    if (typeof prefs.rate === 'number' && isFinite(prefs.rate)) analyze.billing.rate = prefs.rate;
+    if (typeof prefs.showNonBillable === 'boolean') analyze.billing.showNonBillable = prefs.showNonBillable;
+  } catch (e) {}
 
   analyze.initPickers();
-  analyze.bindEvents();
 
   addEventWatcher('task', 'updated', function() { analyze.refresh(); }, 'analyze');
   addEventWatcher('task', 'added', function() { analyze.refresh(); }, 'analyze');
   addEventWatcher('task', 'deleted', function() { analyze.refresh(); }, 'analyze');
+  addEventWatcher('node', 'updated', function() { analyze.refresh(); }, 'analyze');
   addEventWatcher('server', 'synch', function() { analyze.refresh(); }, 'analyze');
+
+  // Keep the live session block / stats current while tracking
+  analyze._tick = setInterval(function() {
+    if (localStorage.ttSessionId) analyze.refresh();
+  }, 60000);
 
   analyze.refresh();
 };
@@ -3668,9 +3864,9 @@ analyze.show = function() {
  */
 analyze.hide = function() {
   removeEventWatchers('analyze');
-  if (analyze.chartInstance) {
-    analyze.chartInstance.destroy();
-    analyze.chartInstance = null;
+  if (analyze._tick) {
+    clearInterval(analyze._tick);
+    analyze._tick = null;
   }
 };
 
@@ -3682,7 +3878,7 @@ analyze.update = function() {
 };
 
 /**
- * Initialize Pikaday pickers
+ * Initialize Pikaday pickers for the custom range
  */
 analyze.initPickers = function() {
   var startField = gebi('analyze-start-date');
@@ -3710,449 +3906,620 @@ analyze.initPickers = function() {
 };
 
 /**
- * Bind click events
- */
-analyze.bindEvents = function() {
-  var rangeBar = gebi('analyze-range-bar');
-  if (rangeBar) {
-    rangeBar.onclick = function(e) {
-      if (e.target.classList.contains('range-btn')) {
-        analyze.setPreset(e.target.dataset.preset);
-      }
-    };
-  }
-
-  var tabs = gebi('analyze-tabs');
-  if (tabs) {
-    tabs.onclick = function(e) {
-      if (e.target.classList.contains('analyze-tab')) {
-        analyze.setTab(e.target.dataset.tab);
-      }
-    };
-  }
-};
-
-/**
- * Set time range preset
- */
-analyze.setPreset = function(preset) {
-  analyze.preset = preset;
-
-  var buttons = document.querySelectorAll('#analyze-range-bar .range-btn');
-  for (var i = 0; i < buttons.length; i++) {
-    buttons[i].classList.toggle('active', buttons[i].dataset.preset === preset);
-  }
-
-  var customDates = gebi('analyze-custom-dates');
-  if (customDates) {
-    customDates.style.display = preset === 'custom' ? 'flex' : 'none';
-  }
-
-  if (preset !== 'custom') {
-    analyze.dateRange = analyze.getDateRange(preset);
-  }
-
-  analyze.drillPath = [];
-  analyze.refresh();
-};
-
-/**
- * Set custom dates from picker inputs
+ * Read custom range from the picker inputs
  */
 analyze.setCustomDates = function() {
   var startField = gebi('analyze-start-date');
   var endField = gebi('analyze-end-date');
+  if (!startField || !endField || !startField.value || !endField.value) return;
 
-  if (startField && endField && startField.value && endField.value) {
-    analyze.dateRange = {
-      start: startField.value,
-      end: endField.value
-    };
-    analyze.refresh();
-  }
-};
-
-/**
- * Drill into a node
- */
-analyze.drillInto = function(nodeId) {
-  if (!nodeId) return;
-  analyze.drillPath.push(nodeId);
+  var s = startField.value;
+  var e = endField.value;
+  if (e < s) { var t = s; s = e; e = t; }
+  analyze.customRange = { start: s, end: e };
   analyze.refresh();
 };
 
-/**
- * Drill to a specific level
- */
-analyze.drillTo = function(level) {
-  analyze.drillPath = analyze.drillPath.slice(0, level);
-  analyze.refresh();
-};
+/* ------------------------------ controls ------------------------------ */
 
-/**
- * Handle dropdown change
- */
-analyze.onDropdownChange = function(level, nodeId) {
-  analyze.drillPath = analyze.drillPath.slice(0, level);
-  if (nodeId !== 'all') {
-    analyze.drillPath.push(nodeId);
-  }
-  analyze.refresh();
-};
-
-/**
- * Set active tab
- */
 analyze.setTab = function(tab) {
-  analyze.activeTab = tab;
+  analyze.tab = tab;
+  analyze.refresh();
+};
 
-  var tabs = document.querySelectorAll('#analyze-tabs .analyze-tab');
-  for (var i = 0; i < tabs.length; i++) {
-    tabs[i].classList.toggle('active', tabs[i].dataset.tab === tab);
-  }
+analyze.setCalView = function(view) {
+  analyze.calView = view;
+  analyze.refresh();
+};
 
-  var overview = gebi('analyze-overview');
-  var timeline = gebi('analyze-timeline');
+analyze.calNav = function(dir) {
+  var unit = analyze.calView === 'day' ? 'day' : analyze.calView === 'week' ? 'week' : 'month';
+  analyze.anchor = moment(analyze.anchor).add(dir, unit).format('YYYY-MM-DD');
+  analyze.refresh();
+};
 
-  if (overview) overview.style.display = tab === 'overview' ? 'block' : 'none';
-  if (timeline) timeline.style.display = tab === 'timeline' ? 'block' : 'none';
-
-  analyze.renderActiveTab();
+analyze.calToday = function() {
+  analyze.anchor = moment().format('YYYY-MM-DD');
+  analyze.refresh();
 };
 
 /**
- * Render breadcrumb navigation
+ * Jump to a specific day (from week headers / month cells)
  */
-analyze.renderBreadcrumb = function() {
-  var container = gebi('analyze-breadcrumb');
-  if (!container) return;
+analyze.calGoto = function(ds) {
+  analyze.tab = 'calendar';
+  analyze.calView = 'day';
+  analyze.anchor = ds;
+  analyze.refresh();
+};
 
-  var html = '<span class="breadcrumb-item" onclick="analyze.drillTo(0)">All</span>';
-
-  for (var i = 0; i < analyze.drillPath.length; i++) {
-    var node = getNode(analyze.drillPath[i]);
-    var name = node ? node.name : 'Unknown';
-    html += ' <span class="breadcrumb-sep">&gt;</span> ';
-    html += '<span class="breadcrumb-item" onclick="analyze.drillTo(' + (i + 1) + ')">' + name + '</span>';
+analyze.setProjPreset = function(preset) {
+  analyze.projPreset = preset;
+  if (preset === 'custom' && (!analyze.customRange.start || !analyze.customRange.end)) {
+    var r = analyze.getDateRange('month');
+    analyze.customRange = r;
+    var sf = gebi('analyze-start-date');
+    var ef = gebi('analyze-end-date');
+    if (sf) sf.value = r.start;
+    if (ef) ef.value = r.end;
   }
+  analyze.refresh();
+};
 
-  container.innerHTML = html;
+analyze.projDrill = function(nodeId) {
+  analyze.projPath.push(nodeId);
+  analyze.refresh();
+};
+
+analyze.projJump = function(level) {
+  analyze.projPath = analyze.projPath.slice(0, level);
+  analyze.refresh();
 };
 
 /**
- * Render cascading dropdown selectors
+ * Effective Projects-lens date range
  */
-analyze.renderDropdowns = function() {
-  var container = gebi('analyze-dropdowns');
-  if (!container) return;
+analyze.projRangeOf = function() {
+  if (analyze.projPreset === 'custom') return analyze.customRange;
+  return analyze.getDateRange(analyze.projPreset);
+};
 
-  var html = '';
-  var parentId = null;
+/* ------------------------------ billing prefs ------------------------------ */
 
-  for (var level = 0; level <= analyze.drillPath.length; level++) {
-    var children = getNodeChildren(parentId);
-    var nonLeafChildren = children.filter(function(c) { return !nodeIsTask(c.id); });
+analyze.savePrefs = function() {
+  try {
+    localStorage.ttReviewPrefs = JSON.stringify(analyze.billing);
+  } catch (e) {}
+};
 
-    if (nonLeafChildren.length === 0 && level > 0) break;
+analyze.setRound = function(checked) {
+  analyze.billing.round15 = !!checked;
+  analyze.savePrefs();
+  analyze.refresh();
+};
 
-    var selectedId = analyze.drillPath[level] || 'all';
+analyze.setShowNonBillable = function(checked) {
+  analyze.billing.showNonBillable = !!checked;
+  analyze.savePrefs();
+  analyze.refresh();
+};
 
-    html += '<select class="analyze-dropdown" onchange="analyze.onDropdownChange(' + level + ', this.value)">';
-    html += '<option value="all"' + (selectedId === 'all' ? ' selected' : '') + '>All</option>';
-
-    for (var i = 0; i < children.length; i++) {
-      var child = children[i];
-      var selected = child.id === selectedId ? ' selected' : '';
-      html += '<option value="' + child.id + '"' + selected + '>' + child.name + '</option>';
-    }
-
-    html += '</select>';
-
-    if (analyze.drillPath[level]) {
-      parentId = analyze.drillPath[level];
-    } else {
-      break;
-    }
-  }
-
-  container.innerHTML = html;
+analyze.setRate = function(value) {
+  var r = parseFloat(value);
+  analyze.billing.rate = (isFinite(r) && r >= 0) ? r : 0;
+  analyze.savePrefs();
+  analyze.refresh();
 };
 
 /**
- * Render summary line
+ * Billable seconds for one session, honoring the round-up-to-15-min toggle
  */
-analyze.renderSummary = function() {
-  var container = gebi('analyze-summary');
-  if (!container) return;
+analyze.billSecs = function(secs) {
+  if (!analyze.billing.round15) return secs;
+  return Math.ceil(secs / 900) * 900;
+};
 
-  var totalSecs = 0;
-  for (var i = 0; i < analyze.aggregated.length; i++) {
-    totalSecs += analyze.aggregated[i].totalSecs;
-  }
-
-  var itemCount = analyze.aggregated.length;
-  var timeStr = analyze.formatDuration(totalSecs);
-
-  container.innerHTML = timeStr + ' tracked across ' + itemCount + ' item' + (itemCount !== 1 ? 's' : '');
+analyze.formatMoney = function(amount) {
+  return '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 
 /**
- * Master refresh function
+ * Download the current ledger as CSV
+ */
+analyze.exportCSV = function() {
+  if (!analyze._csvRows.length) return;
+  var lines = ['line_item,date,start,end,task,minutes,billable_hours'];
+  for (var i = 0; i < analyze._csvRows.length; i++) {
+    lines.push(analyze._csvRows[i].join(','));
+  }
+  var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  var scopeName = 'all';
+  var parentId = analyze.projParentId();
+  if (parentId) {
+    var node = getNode(parentId);
+    if (node) scopeName = node.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+  var range = analyze.projRangeOf();
+  a.href = URL.createObjectURL(blob);
+  a.download = 'taakl-' + scopeName + '-' + range.start + '-' + range.end + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
+/* ------------------------------ refresh ------------------------------ */
+
+/**
+ * Master refresh: sync control states, render the active lens into #rv-body
  */
 analyze.refresh = function() {
-  if (analyze.preset !== 'custom') {
-    analyze.dateRange = analyze.getDateRange(analyze.preset);
+  var body = gebi('rv-body');
+  if (!body) return;
+
+  var isCal = analyze.tab === 'calendar';
+  var i;
+
+  var tabs = document.querySelectorAll('#analyze-tabs .analyze-tab');
+  for (i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle('active', tabs[i].dataset.tab === analyze.tab);
   }
 
-  analyze.sessions = analyze.getSessionsInRange(analyze.dateRange.start, analyze.dateRange.end);
-  analyze.aggregated = analyze.aggregateByLevel(analyze.sessions, analyze.getCurrentParentId());
+  var calCtl = gebi('rv-cal-controls');
+  var projCtl = gebi('rv-proj-controls');
+  if (calCtl) calCtl.style.display = isCal ? 'flex' : 'none';
+  if (projCtl) projCtl.style.display = isCal ? 'none' : 'block';
 
-  analyze.renderBreadcrumb();
-  analyze.renderDropdowns();
-  analyze.renderSummary();
+  if (isCal) {
+    var segBtns = document.querySelectorAll('#rv-cal-seg .range-btn');
+    for (i = 0; i < segBtns.length; i++) {
+      segBtns[i].classList.toggle('active', segBtns[i].dataset.cal === analyze.calView);
+    }
+    var title = gebi('rv-cal-title');
+    if (title) title.innerHTML = analyze.calTitle();
 
-  var noData = gebi('analyze-no-data');
-  var overview = gebi('analyze-overview');
-  var timeline = gebi('analyze-timeline');
-  var tabs = gebi('analyze-tabs');
-
-  if (analyze.aggregated.length === 0) {
-    if (noData) noData.style.display = 'block';
-    if (overview) overview.style.display = 'none';
-    if (timeline) timeline.style.display = 'none';
-    if (tabs) tabs.style.display = 'none';
+    if (analyze.calView === 'day') body.innerHTML = analyze.renderCalDay();
+    else if (analyze.calView === 'week') body.innerHTML = analyze.renderCalWeek();
+    else body.innerHTML = analyze.renderCalMonth();
   } else {
-    if (noData) noData.style.display = 'none';
-    if (tabs) tabs.style.display = 'flex';
-    analyze.renderActiveTab();
+    var rangeBtns = document.querySelectorAll('#rv-proj-ranges .range-btn');
+    for (i = 0; i < rangeBtns.length; i++) {
+      rangeBtns[i].classList.toggle('active', rangeBtns[i].dataset.preset === analyze.projPreset);
+    }
+    var custom = gebi('analyze-custom-dates');
+    if (custom) custom.style.display = analyze.projPreset === 'custom' ? 'flex' : 'none';
+
+    body.innerHTML = analyze.renderProjects();
   }
 };
 
-/**
- * Render the currently active tab
- */
-analyze.renderActiveTab = function() {
-  if (analyze.activeTab === 'overview') {
-    analyze.renderOverviewChart();
-    analyze.renderOverviewTable();
-    var overview = gebi('analyze-overview');
-    if (overview) overview.style.display = 'block';
-    var timeline = gebi('analyze-timeline');
-    if (timeline) timeline.style.display = 'none';
-  } else if (analyze.activeTab === 'timeline') {
-    analyze.renderTimeline();
-    var overview = gebi('analyze-overview');
-    if (overview) overview.style.display = 'none';
-    var timeline = gebi('analyze-timeline');
-    if (timeline) timeline.style.display = 'block';
+analyze.calTitle = function() {
+  var m = moment(analyze.anchor);
+  if (analyze.calView === 'day') return m.format('dddd, MMMM D, YYYY');
+  if (analyze.calView === 'week') {
+    var a = m.clone().startOf('isoWeek');
+    var b = a.clone().add(6, 'day');
+    if (a.month() === b.month()) return a.format('MMMM D') + ' – ' + b.format('D, YYYY');
+    return a.format('MMM D') + ' – ' + b.format('MMM D, YYYY');
   }
+  return m.format('MMMM YYYY');
+};
+
+/* ------------------------------ calendar lens ------------------------------ */
+
+analyze.DAY_PX = 56;   // px per hour in the day view
+analyze.WEEK_PX = 42;  // px per hour in the week view (must match .rv-wg-lines CSS)
+
+analyze.renderCalDay = function() {
+  var ds = analyze.anchor;
+  var days = analyze.getCalendarDays(ds, ds);
+  var day = days[ds] || { segs: [], comps: [] };
+  var isToday = ds === moment().format('YYYY-MM-DD');
+
+  var html = '<div class="rv-day-layout">';
+  html += '<div class="rv-card rv-cal-card">' + analyze.dayCanvasHTML(day, isToday) + '</div>';
+  html += '<div class="rv-stats">' + analyze.calStatsHTML('day', [ds], days) + '</div>';
+  html += '</div>';
+  return html;
 };
 
 /**
- * Render horizontal bar chart
+ * The positioned day column: hour grid, session blocks, completion markers
  */
-analyze.renderOverviewChart = function() {
-  var canvas = gebi('analyze-chart-canvas');
-  if (!canvas) return;
+analyze.dayCanvasHTML = function(day, isToday) {
+  var nowMin = moment().hours() * 60 + moment().minutes();
+  var i;
 
-  if (analyze.chartInstance) {
-    analyze.chartInstance.destroy();
-    analyze.chartInstance = null;
+  if (day.segs.length === 0 && day.comps.length === 0) {
+    return '<div class="rv-empty">Nothing tracked this day.</div>';
   }
 
-  var labels = [];
-  var data = [];
-  var colors = [];
-  var nodeIds = [];
+  var minM = 24 * 60, maxM = 0;
+  for (i = 0; i < day.segs.length; i++) {
+    if (day.segs[i].startMin < minM) minM = day.segs[i].startMin;
+    if (day.segs[i].endMin > maxM) maxM = day.segs[i].endMin;
+  }
+  for (i = 0; i < day.comps.length; i++) {
+    if (day.comps[i].min < minM) minM = day.comps[i].min;
+    if (day.comps[i].min > maxM) maxM = day.comps[i].min;
+  }
+  if (isToday && nowMin > maxM) maxM = nowMin;
 
-  for (var i = 0; i < analyze.aggregated.length; i++) {
-    var item = analyze.aggregated[i];
-    labels.push(item.nodeName);
-    data.push(Math.round(item.totalSecs / 60));
-    colors.push(analyze.getNodeColor(item.nodeId));
-    nodeIds.push(item.nodeId);
+  var h0 = Math.max(0, Math.floor(minM / 60));
+  var h1 = Math.min(24, Math.ceil(maxM / 60));
+  if (h1 - h0 < 6) h1 = Math.min(24, h0 + 6);
+  var px = analyze.DAY_PX;
+
+  function y(min) { return Math.round((min - h0 * 60) / 60 * px); }
+
+  var html = '<div class="rv-day-canvas" style="height:' + ((h1 - h0) * px + 14) + 'px">';
+
+  for (var h = h0; h <= h1; h++) {
+    html += '<div class="rv-hline" style="top:' + y(h * 60) + 'px"></div>';
+    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.fmtClock(h * 60) + '</div>';
   }
 
-  var ctx = canvas.getContext('2d');
-  analyze.chartInstance = new Chart(ctx, {
-    type: 'horizontalBar',
-    data: {
-      labels: labels,
-      datasets: [{
-        data: data,
-        backgroundColor: colors,
-        borderWidth: 0
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      legend: { display: false },
-      scales: {
-        xAxes: [{
-          ticks: {
-            beginAtZero: true,
-            callback: function(value) {
-              var hours = Math.floor(value / 60);
-              var mins = value % 60;
-              if (hours > 0) return hours + 'h ' + mins + 'm';
-              return mins + 'm';
-            }
-          }
-        }]
-      },
-      onClick: function(evt) {
-        var activePoints = analyze.chartInstance.getElementsAtEvent(evt);
-        if (activePoints.length > 0) {
-          var idx = activePoints[0]._index;
-          var nodeId = nodeIds[idx];
-          var item = analyze.aggregated[idx];
-          if (!item.isLeaf) {
-            analyze.drillInto(nodeId);
-          }
-        }
-      },
-      tooltips: {
-        callbacks: {
-          label: function(tooltipItem) {
-            return analyze.formatDuration(tooltipItem.xLabel * 60);
-          }
-        }
+  for (i = 0; i < day.segs.length; i++) {
+    var seg = day.segs[i];
+    var ses = seg.ses;
+    var color = analyze.getNodeColor(ses.path[0].id);
+    var ht = Math.max(12, y(seg.endMin) - y(seg.startMin) - 2);
+    var size = ht >= 46 ? 'tall' : (ht >= 26 ? 'mid' : 'slim');
+    var crumb = analyze.pathNames(ses.path, 0, ses.path.length - 1);
+    var timeStr = analyze.fmtClock(seg.startMin) + '–' + (ses.live ? 'now' : analyze.fmtClock(seg.endMin));
+    var durStr = analyze.formatDuration((seg.endMin - seg.startMin) * 60);
+    var tip = analyze.pathNames(ses.path, 0, ses.path.length) + '\n' + timeStr + ' · ' + durStr +
+              (ses.live ? ' · tracking now' : '');
+
+    html += '<div class="rv-block rv-' + size + (ses.live ? ' rv-live' : '') + '"' +
+            ' title="' + analyze.escAttr(tip) + '"' +
+            ' style="top:' + y(seg.startMin) + 'px;height:' + ht + 'px;border-left-color:' + color +
+            ';background:' + analyze.rgba(color, 0.12) + '">';
+    html += '<div class="rv-block-line"><span class="rv-block-task">' + escapeHtml(ses.taskName) + '</span>' +
+            '<span class="rv-block-time">' + timeStr + ' · ' + durStr + '</span></div>';
+    if (size === 'tall' && crumb) {
+      html += '<div class="rv-block-crumb">' + escapeHtml(crumb) + '</div>';
+    }
+    html += '</div>';
+  }
+
+  for (i = 0; i < day.comps.length; i++) {
+    var c = day.comps[i];
+    var ccolor = analyze.getNodeColor(c.path[0].id);
+    var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\nmarked complete at ' + analyze.fmtClock(c.min);
+    html += '<div class="rv-comp-line" style="top:' + y(c.min) + 'px;border-color:' + ccolor + '"></div>';
+    html += '<div class="rv-comp-chip" title="' + analyze.escAttr(ctip) + '" style="top:' + y(c.min) + 'px">' +
+            '<span class="rv-comp-check" style="color:' + ccolor + '">✓</span>' + escapeHtml(c.name) +
+            '<span class="rv-comp-time">' + analyze.fmtClock(c.min) + '</span></div>';
+  }
+
+  if (isToday && nowMin >= h0 * 60 && nowMin <= h1 * 60) {
+    html += '<div class="rv-now-line" style="top:' + y(nowMin) + 'px"><span>' + analyze.fmtClock(nowMin) + '</span></div>';
+  }
+
+  html += '</div>';
+  return html;
+};
+
+analyze.renderCalWeek = function() {
+  var mon = moment(analyze.anchor).startOf('isoWeek');
+  var dayList = [];
+  var i, j;
+  for (i = 0; i < 7; i++) dayList.push(mon.clone().add(i, 'day').format('YYYY-MM-DD'));
+
+  var days = analyze.getCalendarDays(dayList[0], dayList[6]);
+  var today = moment().format('YYYY-MM-DD');
+
+  var minM = 8 * 60, maxM = 18 * 60;
+  for (i = 0; i < 7; i++) {
+    var dd = days[dayList[i]];
+    if (!dd) continue;
+    for (j = 0; j < dd.segs.length; j++) {
+      if (dd.segs[j].startMin < minM) minM = dd.segs[j].startMin;
+      if (dd.segs[j].endMin > maxM) maxM = dd.segs[j].endMin;
+    }
+    for (j = 0; j < dd.comps.length; j++) {
+      if (dd.comps[j].min < minM) minM = dd.comps[j].min;
+      if (dd.comps[j].min > maxM) maxM = dd.comps[j].min;
+    }
+  }
+  var h0 = Math.floor(minM / 60);
+  var h1 = Math.min(24, Math.ceil(maxM / 60));
+  var px = analyze.WEEK_PX;
+  var height = (h1 - h0) * px;
+
+  function y(min) { return Math.round((min - h0 * 60) / 60 * px); }
+
+  var html = '<div class="rv-card rv-cal-card">';
+
+  html += '<div class="rv-week-head"><div></div>';
+  for (i = 0; i < 7; i++) {
+    var ds = dayList[i];
+    var totSecs = 0;
+    var dData = days[ds] || { segs: [], comps: [] };
+    for (j = 0; j < dData.segs.length; j++) {
+      totSecs += (dData.segs[j].endMin - dData.segs[j].startMin) * 60;
+    }
+    var dm = moment(ds);
+    html += '<button class="rv-wh-day' + (ds === today ? ' rv-today' : '') + '" onclick="analyze.calGoto(\'' + ds + '\')">' +
+            '<span class="rv-wh-name">' + dm.format('ddd') + '</span>' +
+            '<span class="rv-wh-num">' + dm.date() + '</span>' +
+            '<span class="rv-wh-tot">' + (totSecs ? analyze.formatDuration(totSecs) : '·') + '</span></button>';
+  }
+  html += '</div>';
+
+  html += '<div class="rv-week-grid" style="height:' + height + 'px">';
+  html += '<div class="rv-wg-lines"></div>';
+  html += '<div class="rv-wg-gutter">';
+  for (var h = h0; h < h1; h++) {
+    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.fmtClock(h * 60) + '</div>';
+  }
+  html += '</div>';
+
+  for (i = 0; i < 7; i++) {
+    var colDs = dayList[i];
+    var col = days[colDs] || { segs: [], comps: [] };
+    var dow = moment(colDs).isoWeekday();
+    html += '<div class="rv-wcol' + (dow >= 6 ? ' rv-wknd' : '') + (colDs === today ? ' rv-today' : '') + '">';
+
+    for (j = 0; j < col.segs.length; j++) {
+      var seg = col.segs[j];
+      var color = analyze.getNodeColor(seg.ses.path[0].id);
+      var ht = Math.max(4, y(seg.endMin) - y(seg.startMin) - 1);
+      var tip = analyze.pathNames(seg.ses.path, 0, seg.ses.path.length) + '\n' +
+                analyze.fmtClock(seg.startMin) + '–' + (seg.ses.live ? 'now' : analyze.fmtClock(seg.endMin)) +
+                ' · ' + analyze.formatDuration((seg.endMin - seg.startMin) * 60);
+      html += '<div class="rv-wblock" title="' + analyze.escAttr(tip) + '"' +
+              ' style="top:' + y(seg.startMin) + 'px;height:' + ht + 'px;border-left-color:' + color +
+              ';background:' + analyze.rgba(color, 0.16) + '">' +
+              (ht >= 15 ? escapeHtml(seg.ses.taskName) : '') + '</div>';
+    }
+
+    for (j = 0; j < col.comps.length; j++) {
+      var c = col.comps[j];
+      var ccolor = analyze.getNodeColor(c.path[0].id);
+      var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\n✓ complete at ' + analyze.fmtClock(c.min);
+      html += '<div class="rv-wcomp" title="' + analyze.escAttr(ctip) + '"' +
+              ' style="top:' + y(c.min) + 'px;border-color:' + ccolor + '"></div>';
+    }
+
+    html += '</div>';
+  }
+  html += '</div></div>';
+
+  html += '<div class="rv-stats rv-stats-row">' + analyze.calStatsHTML('week', dayList, days) + '</div>';
+  return html;
+};
+
+analyze.renderCalMonth = function() {
+  var m0 = moment(analyze.anchor).startOf('month');
+  var gridStart = m0.clone().startOf('isoWeek');
+  var gridEnd = m0.clone().endOf('month').endOf('isoWeek');
+  var days = analyze.getCalendarDays(gridStart.format('YYYY-MM-DD'), gridEnd.format('YYYY-MM-DD'));
+  var today = moment().format('YYYY-MM-DD');
+  var i, j;
+
+  var html = '<div class="rv-card rv-cal-card">';
+  html += '<div class="rv-month-dow">';
+  var dowNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  for (i = 0; i < 7; i++) html += '<span>' + dowNames[i] + '</span>';
+  html += '</div><div class="rv-month-grid">';
+
+  var d = gridStart.clone();
+  while (d.isSameOrBefore(gridEnd, 'day')) {
+    var ds = d.format('YYYY-MM-DD');
+    var inMonth = d.month() === m0.month();
+    var future = ds > today;
+    var day = days[ds] || { segs: [], comps: [] };
+
+    // Aggregate the cell's time by top-level ancestor
+    var cats = {};
+    var catOrder = [];
+    var totSecs = 0;
+    for (j = 0; j < day.segs.length; j++) {
+      var seg = day.segs[j];
+      var secs = (seg.endMin - seg.startMin) * 60;
+      totSecs += secs;
+      var top = seg.ses.path[0];
+      if (!cats[top.id]) {
+        cats[top.id] = { id: top.id, name: top.name, secs: 0 };
+        catOrder.push(top.id);
       }
+      cats[top.id].secs += secs;
     }
-  });
+    var catList = [];
+    for (j = 0; j < catOrder.length; j++) catList.push(cats[catOrder[j]]);
+    catList.sort(function(a, b) { return b.secs - a.secs; });
+
+    var cls = (inMonth ? '' : ' rv-out') + (future ? ' rv-future' : '') + (ds === today ? ' rv-today' : '');
+    html += '<div class="rv-mcell' + cls + '" onclick="analyze.calGoto(\'' + ds + '\')">';
+    html += '<div class="rv-mc-top"><span class="rv-mc-num">' + d.date() + '</span>';
+    if (day.comps.length) html += '<span class="rv-mc-done">✓' + day.comps.length + '</span>';
+    html += '</div>';
+
+    if (totSecs) {
+      html += '<div class="rv-mc-chips">';
+      for (j = 0; j < catList.length && j < 3; j++) {
+        var cat = catList[j];
+        var color = analyze.getNodeColor(cat.id);
+        html += '<span class="rv-mchip" title="' + analyze.escAttr(cat.name + ' — ' + analyze.formatDuration(cat.secs)) + '">' +
+                '<i style="background:' + color + '"></i>' + analyze.fmtH(cat.secs) +
+                '<span class="rv-mc-cat">' + escapeHtml(cat.name) + '</span></span>';
+      }
+      if (catList.length > 3) {
+        html += '<span class="rv-mchip"><span class="rv-mc-cat">+' + (catList.length - 3) + ' more</span></span>';
+      }
+      html += '</div>';
+      html += '<div class="rv-mc-tot">' + analyze.formatDuration(totSecs) + '</div>';
+    }
+    html += '</div>';
+    d.add(1, 'day');
+  }
+  html += '</div></div>';
+
+  // Stats over the calendar month only (not the grid's out-of-month days)
+  var dayList = [];
+  var dm = m0.clone();
+  for (i = 0; i < m0.daysInMonth(); i++) {
+    dayList.push(dm.format('YYYY-MM-DD'));
+    dm.add(1, 'day');
+  }
+  html += '<div class="rv-stats rv-stats-row">' + analyze.calStatsHTML('month', dayList, days) + '</div>';
+  return html;
 };
 
 /**
- * Render overview table
+ * Stats cards for the calendar lens; scope = 'day' | 'week' | 'month'
  */
-analyze.renderOverviewTable = function() {
-  var container = gebi('analyze-table-container');
-  if (!container) return;
+analyze.calStatsHTML = function(scope, dayList, daysData) {
+  var totalSecs = 0, compCount = 0, sesCount = 0;
+  var sesSeen = {};
+  var cats = {}, catOrder = [];
+  var firstMin = null, lastMin = null;
+  var longest = null, live = null;
+  var perDay = [];
+  var i, j;
 
-  var totalSecs = 0;
-  for (var i = 0; i < analyze.aggregated.length; i++) {
-    totalSecs += analyze.aggregated[i].totalSecs;
-  }
+  for (i = 0; i < dayList.length; i++) {
+    var ds = dayList[i];
+    var day = daysData[ds] || { segs: [], comps: [] };
+    var daySecs = 0;
 
-  var html = '<table class="analyze-table"><thead><tr><th>Name</th><th>Time</th><th>%</th></tr></thead><tbody>';
+    for (j = 0; j < day.segs.length; j++) {
+      var seg = day.segs[j];
+      var secs = (seg.endMin - seg.startMin) * 60;
+      totalSecs += secs;
+      daySecs += secs;
 
-  for (var i = 0; i < analyze.aggregated.length; i++) {
-    var item = analyze.aggregated[i];
-    var pct = totalSecs > 0 ? Math.round((item.totalSecs / totalSecs) * 100) : 0;
-    var clickable = !item.isLeaf ? ' class="clickable" onclick="analyze.drillInto(\'' + item.nodeId + '\')"' : '';
+      var top = seg.ses.path[0];
+      if (!cats[top.id]) {
+        cats[top.id] = { id: top.id, name: top.name, secs: 0 };
+        catOrder.push(top.id);
+      }
+      cats[top.id].secs += secs;
 
-    html += '<tr' + clickable + '>';
-    html += '<td>' + item.nodeName + '</td>';
-    html += '<td>' + analyze.formatDuration(item.totalSecs) + '</td>';
-    html += '<td>' + pct + '%</td>';
-    html += '</tr>';
-  }
-
-  html += '</tbody></table>';
-  container.innerHTML = html;
-};
-
-/**
- * Render timeline view
- */
-analyze.renderTimeline = function() {
-  var container = gebi('analyze-timeline-content');
-  if (!container) return;
-
-  if (analyze.sessions.length === 0) {
-    container.innerHTML = '<div class="timeline-empty">No sessions to display</div>';
-    return;
-  }
-
-  var startMoment = moment(analyze.dateRange.start + ' 00:00:00');
-  var endMoment = moment(analyze.dateRange.end + ' 23:59:59');
-  var totalHours = endMoment.diff(startMoment, 'hours') + 1;
-
-  var pixelsPerHour = 30 * analyze.timelineZoom;
-  var contentWidth = pixelsPerHour * totalHours;
-  var labelWidth = 120;
-
-  var html = '<div class="timeline-header" style="margin-left: ' + labelWidth + 'px; width: ' + contentWidth + 'px;">';
-  html += analyze.renderTimeAxis(startMoment, totalHours, pixelsPerHour);
-  html += '</div>';
-
-  html += '<div class="timeline-body">';
-
-  for (var i = 0; i < analyze.aggregated.length; i++) {
-    var item = analyze.aggregated[i];
-    var color = analyze.getNodeColor(item.nodeId);
-    var clickable = !item.isLeaf ? ' onclick="analyze.drillInto(\'' + item.nodeId + '\')"' : '';
-    var clickableClass = !item.isLeaf ? ' clickable' : '';
-
-    html += '<div class="timeline-row">';
-    html += '<div class="timeline-label' + clickableClass + '"' + clickable + '>' + item.nodeName + '</div>';
-    html += '<div class="timeline-track" style="width: ' + contentWidth + 'px;">';
-
-    for (var j = 0; j < item.sessions.length; j++) {
-      var ses = item.sessions[j];
-      var sesStart = moment(ses.start_time);
-      var sesEnd = moment(ses.end_time);
-
-      var offsetHours = sesStart.diff(startMoment, 'hours', true);
-      var durationHours = sesEnd.diff(sesStart, 'hours', true);
-
-      var left = offsetHours * pixelsPerHour;
-      var width = Math.max(durationHours * pixelsPerHour, 3);
-
-      html += '<div class="timeline-block" style="left: ' + left + 'px; width: ' + width + 'px; background-color: ' + color + ';" ';
-      html += 'title="' + ses.taskName + ': ' + analyze.formatDuration(ses.durationSecs) + '"></div>';
+      if (!sesSeen[seg.ses.id]) {
+        sesSeen[seg.ses.id] = true;
+        sesCount++;
+        if (!longest || seg.ses.durationSecs > longest.durationSecs) longest = seg.ses;
+        if (seg.ses.live) live = seg.ses;
+      }
+      if (firstMin === null || seg.startMin < firstMin) firstMin = seg.startMin;
+      if (lastMin === null || seg.endMin > lastMin) lastMin = seg.endMin;
     }
 
-    html += '</div></div>';
+    compCount += day.comps.length;
+    perDay.push({ ds: ds, secs: daySecs, comps: day.comps.length });
   }
 
-  html += '</div>';
+  var catList = [];
+  for (i = 0; i < catOrder.length; i++) catList.push(cats[catOrder[i]]);
+  catList.sort(function(a, b) { return b.secs - a.secs; });
 
-  container.innerHTML = html;
-};
-
-/**
- * Render time axis for timeline
- */
-analyze.renderTimeAxis = function(startMoment, totalHours, pixelsPerHour) {
   var html = '';
-  var interval = 6;
-  if (totalHours <= 24) interval = 1;
-  else if (totalHours <= 72) interval = 3;
-  else if (totalHours <= 168) interval = 6;
-  else interval = 24;
 
-  for (var h = 0; h < totalHours; h += interval) {
-    var m = startMoment.clone().add(h, 'hours');
-    var label = interval >= 24 ? m.format('MMM D') : m.format('HH:mm');
-    var left = h * pixelsPerHour;
+  // Hero card
+  html += '<div class="rv-card rv-stat-card">';
+  html += '<div class="rv-stat-label">Tracked</div>';
+  html += '<div class="rv-stat-big">' + (totalSecs ? analyze.formatDuration(totalSecs) : '—') + '</div>';
+  if (live) {
+    html += '<div class="rv-live-line">Tracking now — <b>' + escapeHtml(live.taskName) + '</b> · since ' +
+            analyze.fmtClock(analyze.minOfDay(live.start_time)) + '</div>';
+  }
+  html += '<div class="rv-stat-grid">';
+  html += '<div><b>' + sesCount + '</b><span>sessions</span></div>';
+  html += '<div><b>' + compCount + '</b><span>completed</span></div>';
+  if (scope === 'day') {
+    html += '<div><b>' + (firstMin !== null ? analyze.fmtClock(firstMin) : '—') + '</b><span>first start</span></div>';
+    html += '<div><b>' + (lastMin !== null ? analyze.fmtClock(lastMin) : '—') + '</b><span>last stop</span></div>';
+    html += '<div><b>' + (longest ? analyze.formatDuration(longest.durationSecs) : '—') + '</b><span>longest session</span></div>';
+    html += '<div><b>' + (sesCount ? analyze.formatDuration(totalSecs / sesCount) : '—') + '</b><span>avg session</span></div>';
+  } else {
+    var activeDays = 0;
+    var busiest = null;
+    for (i = 0; i < perDay.length; i++) {
+      if (perDay[i].secs > 0) activeDays++;
+      if (!busiest || perDay[i].secs > busiest.secs) busiest = perDay[i];
+    }
+    html += '<div><b>' + activeDays + '</b><span>active days</span></div>';
+    html += '<div><b>' + (activeDays ? analyze.formatDuration(totalSecs / activeDays) : '—') + '</b><span>avg / active day</span></div>';
+    if (busiest && busiest.secs > 0) {
+      html += '<div><b>' + moment(busiest.ds).format('ddd D') + '</b><span>busiest day</span></div>';
+      html += '<div><b>' + analyze.formatDuration(busiest.secs) + '</b><span>on busiest day</span></div>';
+    }
+  }
+  html += '</div></div>';
 
-    html += '<div class="timeline-tick" style="left: ' + left + 'px;">' + label + '</div>';
+  // Category card
+  html += '<div class="rv-card rv-stat-card">';
+  html += '<div class="rv-stat-label">By top-level item</div>';
+  if (!catList.length) {
+    html += '<div class="rv-empty-small">No time tracked.</div>';
+  } else {
+    var maxSecs = catList[0].secs;
+    for (i = 0; i < catList.length; i++) {
+      var cat = catList[i];
+      var color = analyze.getNodeColor(cat.id);
+      html += '<div class="rv-cat-row">' +
+              '<span class="rv-cat-name"><i style="background:' + color + '"></i>' + escapeHtml(cat.name) + '</span>' +
+              '<span class="rv-cat-bar"><em style="width:' + Math.round(cat.secs / maxSecs * 100) + '%;background:' + color + '"></em></span>' +
+              '<span class="rv-cat-time">' + analyze.formatDuration(cat.secs) + '</span></div>';
+    }
+  }
+  html += '</div>';
+
+  // Third card: completed list (day) or daily rhythm (week/month)
+  if (scope === 'day') {
+    var comps = (daysData[dayList[0]] || { comps: [] }).comps;
+    html += '<div class="rv-card rv-stat-card">';
+    html += '<div class="rv-stat-label">Completed (' + comps.length + ')</div>';
+    if (!comps.length) {
+      html += '<div class="rv-empty-small">Nothing marked complete.</div>';
+    } else {
+      html += '<ul class="rv-done-list">';
+      for (i = 0; i < comps.length; i++) {
+        var c = comps[i];
+        var crumb = analyze.pathNames(c.path, 0, c.path.length - 1);
+        html += '<li><span class="rv-done-time">' + analyze.fmtClock(c.min) + '</span>' +
+                '<span class="rv-done-check" style="color:' + analyze.getNodeColor(c.path[0].id) + '">✓</span>' +
+                '<span>' + escapeHtml(c.name) +
+                (crumb ? '<span class="rv-done-crumb">' + escapeHtml(crumb) + '</span>' : '') + '</span></li>';
+      }
+      html += '</ul>';
+    }
+    html += '</div>';
+  } else {
+    var maxDay = 1;
+    for (i = 0; i < perDay.length; i++) {
+      if (perDay[i].secs > maxDay) maxDay = perDay[i].secs;
+    }
+    var todayDs = moment().format('YYYY-MM-DD');
+    html += '<div class="rv-card rv-stat-card">';
+    html += '<div class="rv-stat-label">Daily rhythm</div>';
+    html += '<div class="rv-spark' + (scope === 'month' ? ' rv-spark-month' : '') + '">';
+    for (i = 0; i < perDay.length; i++) {
+      var pd = perDay[i];
+      var pm = moment(pd.ds);
+      var isWknd = pm.isoWeekday() >= 6;
+      var tip = pm.format('ddd MMM D') + '\n' +
+                (pd.secs ? analyze.formatDuration(pd.secs) + ' tracked' : 'nothing tracked') +
+                (pd.comps ? ' · ' + pd.comps + ' done' : '');
+      var label = scope === 'week' ? pm.format('dd').charAt(0) : String(pm.date());
+      html += '<div class="rv-sp' + (isWknd ? ' rv-wknd' : '') + (pd.ds === todayDs ? ' rv-today' : '') + '"' +
+              ' title="' + analyze.escAttr(tip) + '">' +
+              '<b style="height:' + Math.max(2, Math.round(pd.secs / maxDay * 100)) + '%"></b>' +
+              '<span>' + label + '</span></div>';
+    }
+    html += '</div></div>';
   }
 
   return html;
 };
 
-/**
- * Zoom timeline in
- */
-analyze.zoomIn = function() {
-  if (analyze.timelineZoom < 10) {
-    analyze.timelineZoom *= 1.5;
-    analyze.renderTimeline();
-  }
-};
+/* ------------------------------ projects lens ------------------------------ */
 
-/**
- * Zoom timeline out
- */
-analyze.zoomOut = function() {
-  if (analyze.timelineZoom > 1) {
-    analyze.timelineZoom /= 1.5;
-    if (analyze.timelineZoom < 1) analyze.timelineZoom = 1;
-    analyze.renderTimeline();
-  }
+analyze.renderProjects = function() {
+  return '<div class="rv-empty">Projects lens — coming next.</div>';
 };
 
 
