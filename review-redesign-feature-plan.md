@@ -1,5 +1,13 @@
 # Review View Redesign — Implementation Plan
 
+> **Status: implemented** on this branch (see the three commits following the
+> plan commit). Remaining before merge: manual testing against real data per
+> the checklist below, a Tauri build check, and a sync round-trip test.
+> Deviations from the plan: none substantive; Step 11's dead-code removal
+> happened alongside the earlier steps (the old renderers were replaced
+> wholesale), and `#analyze-controls` CSS from the pre-2024 review UI was
+> removed as well.
+
 Replace the current Review (analyze) view's Overview/Timeline tabs with two new
 lenses on the same data:
 

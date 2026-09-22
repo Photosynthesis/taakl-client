@@ -24,7 +24,7 @@ There are no tests, no linter, and no CI pipeline. All testing is manual via the
 - **Vanilla ES5 JavaScript** — no modules, no transpilation, no jQuery, globals on `window`
 - **Moment.js** — date/time formatting
 - **Pikaday** — date picker
-- **Chart.js v2.1.6** — bar charts in the Review view
+- **Chart.js v2.1.6** — still loaded but currently unused (the old Review charts were replaced by pure-DOM rendering)
 - **Font Awesome 4.5.0** (CDN) — icons
 
 ## Architecture
@@ -66,7 +66,7 @@ Views are singleton objects with a `.show()` / `.hide()` / `.update()` lifecycle
 |---|---|
 | `treeView` | Primary outliner UI (tree with indent/outdent, drag-drop, inline editing) |
 | `todayView` | Daily focus view (starred tasks + `#daily` tagged tasks) |
-| `analyze` | Review/analytics view with Chart.js bar charts and timeline |
+| `analyze` | Review view with two lenses: Calendar (day/week/month with session blocks + completion markers) and Projects (drillable billing/audit view with a session ledger) |
 | `settingsView` | Account, import/export, settings |
 
 `setView(name)` switches views. The "taskList" view name routes to `treeView`.
