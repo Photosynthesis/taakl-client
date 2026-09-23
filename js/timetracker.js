@@ -644,7 +644,7 @@ function ttInitCore(){
    updateAuthUI();
 
    if(getSetting("auto_synch") == "yes" && isLoggedIn()){
-     synchToServer(true); // silent: icon animation only, no feedback message
+     synchToServer();
      startAutoSync();
    }
 
@@ -920,14 +920,19 @@ function doLogin() {
       if (result.success) {
         authToken = result.token;
         localStorage.authToken = authToken;
+        // Different account than this device last synced with: restart the
+        // sync cursor so the first pull bootstraps the whole account
+        if (ttData.userKey && ttData.userKey !== result.user.uuid) {
+          ttData.lastSyncTime = null;
+        }
         ttData.userKey = result.user.uuid;
         ttData.userName = result.user.username;
         ttSave();
         if (nativeBridge.ready) nativeBridge.persist();
         setFeedback('Logged in successfully');
         hideModal();
-        // Sync from server after login
-        synchFromServer();
+        // Sync after login (bootstraps via epoch pull if never synced)
+        synchToServer();
         ttInit();
       } else {
         showAuthError(result.error || 'Login failed');
@@ -3424,8 +3429,8 @@ function abortNodeSession(message) {
 
 /**
  * Re-point current_node/current_session after sync rewrites ttData.nodes.
- * Merge can replace the node object (mergeServerData) or the whole sessions
- * map (upsertNodeLocally), leaving the globals dangling on dead objects —
+ * Sync can replace the node object or the whole sessions map
+ * (upsertNodeLocally), leaving the globals dangling on dead objects —
  * mutations would then silently miss ttData.
  */
 function refreshSessionRefs() {
@@ -5878,66 +5883,7 @@ function synchIconStatus(status) {
 
 function startAutoSync() {
   stopAutoSync();
-  autoSyncIntervalId = setInterval(function() {
-    if (syncInProgress || !isLoggedIn()) return;
-    var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
-                          (synchQueue.queue && synchQueue.queue.length > 0);
-    if (hasLocalChanges) {
-      synchToServer(true); // silent: icon animation only, no feedback message
-    } else if (ttData.lastSyncTime) {
-      pollServerChanges(); // delta pull so an idle device sees remote activity
-    }
-  }, 10000);
-}
-
-// Background delta pull for an idle device: asks the server for changes since
-// lastSyncTime without pushing anything, so sessions started (and edits made)
-// on another device show up here without a manual sync or full download.
-function pollServerChanges() {
-  syncInProgress = true;
-
-  ajaxReq({
-    url: serverConfig.baseUrl + serverConfig.endpoints.sync,
-    type: 'POST',
-    contentType: 'application/json',
-    headers: { 'Authorization': 'Bearer ' + authToken },
-    data: JSON.stringify({
-      lastSyncTime: ttData.lastSyncTime,
-      changes: [],
-      globalState: ttData.globalState || null
-    }),
-    success: function(result) {
-      syncInProgress = false;
-      if (!result.success) return;
-
-      var hadChanges = result.changes && result.changes.length > 0;
-      if (hadChanges) {
-        applyServerChanges(result.changes);
-        refreshSessionRefs();
-        if (result.rootOrder && Array.isArray(result.rootOrder)) {
-          ttData.rootOrder = mergeRootOrder(ttData.rootOrder || [], result.rootOrder, ttData.nodes || {});
-        }
-      }
-
-      var stateChanged = applyServerGlobalState(result.globalState);
-
-      // Quiet polls leave lastSyncTime alone: re-scanning the same window is
-      // idempotent, and skipping the save avoids re-rendering views every tick
-      if (hadChanges || stateChanged) {
-        ttData.lastSyncTime = result.serverTime;
-        ttSave();
-        emitEvent('server', 'synch');
-        synchStatusNote('Received ' + (result.changes ? result.changes.length : 0) +
-          ' change(s) · ' + moment().format('HH:mm:ss'));
-      } else {
-        synchStatusNote('Up to date · checked ' + moment().format('HH:mm:ss'));
-      }
-    },
-    error: function() {
-      syncInProgress = false;
-      synchStatusNote('Sync error (background check) · ' + moment().format('HH:mm:ss'));
-    }
-  });
+  autoSyncIntervalId = setInterval(synch, 10000);
 }
 
 function stopAutoSync() {
@@ -5947,174 +5893,107 @@ function stopAutoSync() {
   }
 }
 
-// Main sync function. silent = no feedback messages (auto sync); icon still animates.
-function synchToServer(silent) {
+// Manual sync entry point (header icon, settings button, post-login)
+function synchToServer() {
   if (!isLoggedIn()) {
     showAuthModal('login');
     return;
   }
+  synch();
+}
 
-  if (syncInProgress) return;
+// How far behind lastSyncTime each pull reaches. A write that commits while
+// another device's sync is reading can carry an updated_at slightly before
+// the serverTime that device stores, and an exact-cursor pull would then skip
+// it forever. Re-applying already-seen changes is an idempotent upsert of
+// current row state, so a short overlap is free insurance.
+var SYNC_OVERLAP_SECONDS = 30;
+
+// Signature of the last applied change batch: the overlap window re-delivers
+// recent batches, and an identical batch must not re-render the views
+var syncLastBatchSig = '';
+
+/**
+ * The one sync flow: push whatever is queued (possibly nothing) and pull
+ * changes since lastSyncTime. A device with no lastSyncTime bootstraps by
+ * pulling since the epoch — the server returns the whole account as ordinary
+ * changes. Runs on the 10s auto-sync tick and on manual sync.
+ */
+function synch() {
+  if (!isLoggedIn() || syncInProgress) return;
   syncInProgress = true;
-
-  // Check if we have local changes
-  var hasLocalChanges = (ttData.synchQueue && ttData.synchQueue.length > 0) ||
-                        (synchQueue.queue && synchQueue.queue.length > 0);
-
-  // If there are local changes, use incremental sync to avoid overwriting server data
-  if (hasLocalChanges) {
-    console.log('[SYNC] Has local changes, using incremental sync');
-    synchIncremental(silent);
-    return;
-  }
-
-  // No local changes - safe to do full download from server
-  console.log('[SYNC] No local changes, downloading from server');
-  synchFromServer(silent);
-}
-
-// Download data from server
-function synchFromServer(silent) {
-  if (!isLoggedIn()) {
-    synchStatusNote('Not logged in');
-    synchIconStatus("error");
-    return;
-  }
-
-  synchStatusNote('Synching from server...');
   synchIconStatus("synching");
 
-  ajaxReq({
-    url: serverConfig.baseUrl + serverConfig.endpoints.syncFull,
-    type: 'GET',
-    cache: false,  // Prevent browser caching of sync data
-    contentType: 'application/json',
-    headers: { 'Authorization': 'Bearer ' + authToken },
-    success: function(result) {
-      console.log('[SYNC] Download success:', result);
+  // Snapshot the queue length; entries added while the request is in flight
+  // stay queued for the next tick instead of being wiped by the clear below
+  var sentCount = synchQueue.queue.length;
 
-      if (result.success && result.ttData) {
-        var serverData = result.ttData;
-
-        // Ensure v2 data structure fields exist
-        if (!serverData.dataVersion) {
-          serverData.dataVersion = 2;
-        }
-        if (!serverData.nodes) {
-          serverData.nodes = {};
-        }
-        if (!serverData.rootOrder) {
-          serverData.rootOrder = [];
-        }
-        if (!serverData.settings) {
-          serverData.settings = defaultSettings;
-        }
-
-        // Smart merge instead of destructive replace
-        mergeServerData(serverData);
-        refreshSessionRefs();
-        applyServerGlobalState(serverData.globalState);
-
-        ttSave();
-        synchStatusNote('Synced from server · ' + moment().format('HH:mm:ss'));
-        synchIconStatus("done");
-        syncInProgress = false;
-        emitEvent('server', 'synch');
-
-      } else {
-        synchStatusNote('Sync completed (no server data) · ' + moment().format('HH:mm:ss'));
-        synchIconStatus("done");
-        syncInProgress = false;
-      }
-    },
-    error: function(xhr, ajaxOptions, thrownError) {
-      console.log('[SYNC] Download error:', xhr.status, thrownError);
-      if (xhr.status === 401) {
-        // Always show session expiry — it needs user action
-        setFeedback('Session expired. Please login again.', 'error');
-        synchStatusNote('Session expired');
-        authToken = null;
-        delete localStorage.authToken;
-        if (nativeBridge.ready) nativeBridge.persist();
-        updateAuthUI();
-      } else {
-        synchStatusNote('Sync error: ' + thrownError);
-      }
-      synchIconStatus("error");
-      syncInProgress = false;
-    }
-  });
-}
-
-// Incremental sync - sends only queued changes
-function synchIncremental(silent) {
-  if (!isLoggedIn()) {
-    synchStatusNote('Not logged in');
-    return;
+  var since = '1970-01-01 00:00:00';
+  if (ttData.lastSyncTime) {
+    since = moment.utc(ttData.lastSyncTime)
+      .subtract(SYNC_OVERLAP_SECONDS, 'seconds').format('YYYY-MM-DD HH:mm:ss');
   }
 
-  if (!synchQueue.queue || synchQueue.queue.length === 0) {
-    console.log('[SYNC] No changes to sync');
-    synchFromServer(silent); // Still fetch updates
-    return;
+  if (sentCount > 0) {
+    console.log('[SYNC] Pushing', sentCount, 'change(s), pulling since', since);
   }
-
-  synchIconStatus("synching");
-  console.log('[SYNC] Incremental sync with', synchQueue.queue.length, 'changes');
-
-  var syncData = {
-    lastSyncTime: ttData.lastSyncTime,
-    changes: synchQueue.queue,
-    globalState: ttData.globalState || null
-  };
 
   ajaxReq({
     url: serverConfig.baseUrl + serverConfig.endpoints.sync,
     type: 'POST',
     contentType: 'application/json',
     headers: { 'Authorization': 'Bearer ' + authToken },
-    data: JSON.stringify(syncData),
+    data: JSON.stringify({
+      lastSyncTime: since,
+      changes: synchQueue.queue.slice(0, sentCount),
+      globalState: ttData.globalState || null
+    }),
     success: function(result) {
-      console.log('[SYNC] Incremental sync result:', result);
+      syncInProgress = false;
 
-      if (result.success) {
-        // Update last sync time
-        ttData.lastSyncTime = result.serverTime;
+      if (!result.success) {
+        synchStatusNote('Sync error: ' + (result.error || 'Unknown'));
+        synchIconStatus("error");
+        return;
+      }
 
-        // Clear the queue
-        synchQueue.queue = [];
-        ttData.synchQueue = [];
+      // Drop only what was sent; mid-flight additions remain queued
+      synchQueue.queue.splice(0, sentCount);
+      ttData.synchQueue = synchQueue.queue;
 
-        // Apply server changes
-        if (result.changes && result.changes.length > 0) {
-          applyServerChanges(result.changes);
-          refreshSessionRefs();
-        }
+      var batchSig = JSON.stringify(result.changes || []);
+      var freshChanges = result.changes && result.changes.length > 0 &&
+                         batchSig !== syncLastBatchSig;
+      syncLastBatchSig = batchSig;
 
+      if (freshChanges) {
+        applyServerChanges(result.changes);
+        refreshSessionRefs();
         // Merge rootOrder: preserve local ordering, incorporate server additions/deletions
         if (result.rootOrder && Array.isArray(result.rootOrder)) {
           ttData.rootOrder = mergeRootOrder(ttData.rootOrder || [], result.rootOrder, ttData.nodes || {});
         }
-
-        applyServerGlobalState(result.globalState);
-
-        ttSave();
-        var msg = 'Synced';
-        if (result.stats) {
-          if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
-          if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
-        }
-        synchStatusNote(msg + ' · ' + moment().format('HH:mm:ss'));
-        synchIconStatus("done");
-        syncInProgress = false;
-        emitEvent('server', 'synch');
-      } else {
-        synchStatusNote('Sync error: ' + (result.error || 'Unknown'));
-        synchIconStatus("error");
-        syncInProgress = false;
       }
+
+      var stateChanged = applyServerGlobalState(result.globalState);
+
+      // Quiet ticks leave lastSyncTime alone (re-scanning the same window is
+      // idempotent) and skip the save/emit so views don't re-render for nothing
+      if (freshChanges || stateChanged || sentCount > 0) {
+        ttData.lastSyncTime = result.serverTime;
+        ttSave();
+        emitEvent('server', 'synch');
+      }
+
+      var msg = 'Synced';
+      if (sentCount > 0) msg += ' (sent ' + sentCount + ')';
+      if (freshChanges) msg += ' (received ' + result.changes.length + ')';
+      if (msg === 'Synced') msg = 'Up to date';
+      synchStatusNote(msg + ' · ' + moment().format('HH:mm:ss'));
+      synchIconStatus("done");
     },
     error: function(xhr, ajaxOptions, thrownError) {
+      syncInProgress = false;
       if (xhr.status === 401) {
         // Always show session expiry — it needs user action
         setFeedback('Session expired. Please login again.', 'error');
@@ -6127,7 +6006,6 @@ function synchIncremental(silent) {
         synchStatusNote('Sync error: ' + thrownError);
       }
       synchIconStatus("error");
-      syncInProgress = false;
     }
   });
 }
@@ -6160,102 +6038,6 @@ function mergeRootOrder(localOrder, serverOrder, nodes) {
   }
 
   return merged;
-}
-
-// Merge server data with local data instead of destructive replace.
-// - Nodes with pending local changes: local wins, but merge sessions additively
-// - Nodes with no pending changes: server wins, preserve local-only fields
-// - New server-only nodes: add them
-// - Local-only nodes not on server and not in queue: remove them (deleted elsewhere)
-function mergeServerData(serverData) {
-  var serverNodes = serverData.nodes || {};
-  var localNodes = ttData.nodes || {};
-
-  // Build set of node UUIDs that have pending local changes
-  var pendingUuids = {};
-  for (var i = 0; i < synchQueue.queue.length; i++) {
-    var entry = synchQueue.queue[i];
-    if (entry.type === 'node') {
-      pendingUuids[entry.uuid] = true;
-    }
-  }
-
-  var mergedNodes = {};
-
-  // Process all server nodes
-  for (var sid in serverNodes) {
-    var serverNode = serverNodes[sid];
-
-    if (localNodes[sid]) {
-      var localNode = localNodes[sid];
-
-      if (pendingUuids[sid]) {
-        // Local wins for pending changes, but merge sessions additively
-        mergedNodes[sid] = localNode;
-        if (serverNode.sessions) {
-          if (!mergedNodes[sid].sessions) mergedNodes[sid].sessions = {};
-          for (var sessId in serverNode.sessions) {
-            if (!mergedNodes[sid].sessions[sessId]) {
-              mergedNodes[sid].sessions[sessId] = serverNode.sessions[sessId];
-            }
-          }
-        }
-      } else {
-        // Server wins, but preserve local-only fields the server doesn't know about
-        mergedNodes[sid] = serverNode;
-        if (localNode.urgent !== undefined && serverNode.urgent === undefined) {
-          mergedNodes[sid].urgent = localNode.urgent;
-        }
-        if (localNode.completed_at !== undefined && serverNode.completed_at === undefined) {
-          mergedNodes[sid].completed_at = localNode.completed_at;
-        }
-        // Merge sessions additively (union)
-        if (localNode.sessions) {
-          if (!mergedNodes[sid].sessions) mergedNodes[sid].sessions = {};
-          for (var sessId in localNode.sessions) {
-            if (!mergedNodes[sid].sessions[sessId]) {
-              mergedNodes[sid].sessions[sessId] = localNode.sessions[sessId];
-            }
-          }
-        }
-      }
-    } else {
-      // New server-only node
-      mergedNodes[sid] = serverNode;
-    }
-  }
-
-  // Keep local-only nodes that are in the sync queue (not yet sent to server)
-  for (var lid in localNodes) {
-    if (!serverNodes[lid] && pendingUuids[lid]) {
-      mergedNodes[lid] = localNodes[lid];
-    }
-  }
-
-  ttData.nodes = mergedNodes;
-
-  // Merge rootOrder
-  var localRootOrder = ttData.rootOrder || [];
-  var serverRootOrder = serverData.rootOrder || [];
-  ttData.rootOrder = mergeRootOrder(localRootOrder, serverRootOrder, ttData.nodes);
-
-  // Merge server settings: local settings take precedence (they are device-local prefs)
-  if (serverData.settings && Object.keys(serverData.settings).length > 0) {
-    for (var skey in serverData.settings) {
-      if (ttData.settings[skey] === undefined) {
-        ttData.settings[skey] = serverData.settings[skey];
-      }
-    }
-  }
-
-  // Preserve auth info
-  ttData.userKey = ttData.userKey;
-  ttData.userName = ttData.userName;
-  ttData.dataVersion = serverData.dataVersion || ttData.dataVersion || 2;
-  ttData.lastSyncTime = new Date().toISOString().replace('T', ' ').substr(0, 19);
-
-  console.log('[SYNC] Merged:', Object.keys(mergedNodes).length, 'nodes (' +
-    Object.keys(pendingUuids).length, 'had pending local changes)');
 }
 
 // Apply changes received from server

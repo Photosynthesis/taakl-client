@@ -87,7 +87,7 @@ Common events: `node/updated`, `node/added`, `node/deleted`, `session/ended`, `s
 
 ### Server Sync
 
-Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (action/type/uuid/data/timestamp) and sent via `synchToServer()`. JWT auth token stored in `localStorage.authToken`. When idle (empty queue), the 30s auto-sync tick calls `pollServerChanges()` — a delta pull (`POST /api/sync` with empty `changes`) so remote activity shows up without a full download.
+Optional sync to `https://api.taakl.app`. Bearer token in `localStorage.authToken`. There is **one** sync flow: `synch()` POSTs to `/api/sync` every 10s (auto-sync tick) and on manual sync (`synchToServer()` entry point), pushing whatever is queued in `synchQueue` (possibly nothing) and pulling changes since `lastSyncTime`. A device with no `lastSyncTime` bootstraps by pulling since the epoch. Robustness details that must be preserved: the pull cursor reaches `SYNC_OVERLAP_SECONDS` behind `lastSyncTime` (a concurrently-committing write can carry an `updated_at` just before the stored `serverTime` and would otherwise be missed forever); re-delivered identical batches are detected by signature (`syncLastBatchSig`) and skip re-render; only the first `sentCount` queue entries are spliced on success so changes queued mid-flight survive. The bulk `/api/sync/full` endpoints are deprecated server-side legacy — the client no longer calls them.
 
 ### Session Tracking
 
