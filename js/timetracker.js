@@ -32,7 +32,7 @@ var currentDuration;
 var defaultSettings = {
   top_level_title : "Client",
   show_billability : true,
-  auto_synch : false,
+  auto_synch : "yes",
   reminder_interval : false,
   reminder_title : "Pomodoro Complete!",
   reminder_message : "Please take a five minute break. <b>Breathe, stretch, look around!</b>",
@@ -5389,6 +5389,9 @@ todayView.refresh = function(){
 // --- Starred section ordering ---
 
 todayView.getStarredOrder = function() {
+  var entry = ttData.globalState && ttData.globalState.todayStarredOrder;
+  if (entry && Array.isArray(entry.value)) return entry.value;
+  // Legacy device-local order (pre-globalState)
   try {
     return JSON.parse(localStorage.todayStarredOrder || '[]');
   } catch(e) { return []; }
@@ -5396,7 +5399,9 @@ todayView.getStarredOrder = function() {
 
 todayView.saveStarredOrder = function() {
   var order = todayView.starredTasks.map(function(t) { return t.id; });
-  localStorage.todayStarredOrder = JSON.stringify(order);
+  setGlobalState('todayStarredOrder', order);
+  localStorage.todayStarredOrder = JSON.stringify(order); // mirror for rollback safety
+  ttSave();
   if (nativeBridge.ready) nativeBridge.persist();
 };
 
@@ -5837,6 +5842,13 @@ function getNodeSessionData(sessionId) {
   return null;
 }
 
+// Sync status is surfaced as a hover tooltip on the sync icon, not as
+// feedback banners. Only action-required messages (session expired) banner.
+function synchStatusNote(text) {
+  var btn = gebi('synch-button');
+  if (btn) btn.title = text;
+}
+
 function synchIconStatus(status) {
   var icon = gebi("synch-icon");
   if (!icon) return;
@@ -5875,7 +5887,7 @@ function startAutoSync() {
     } else if (ttData.lastSyncTime) {
       pollServerChanges(); // delta pull so an idle device sees remote activity
     }
-  }, 30000);
+  }, 10000);
 }
 
 // Background delta pull for an idle device: asks the server for changes since
@@ -5915,10 +5927,15 @@ function pollServerChanges() {
         ttData.lastSyncTime = result.serverTime;
         ttSave();
         emitEvent('server', 'synch');
+        synchStatusNote('Received ' + (result.changes ? result.changes.length : 0) +
+          ' change(s) · ' + moment().format('HH:mm:ss'));
+      } else {
+        synchStatusNote('Up to date · checked ' + moment().format('HH:mm:ss'));
       }
     },
     error: function() {
       syncInProgress = false;
+      synchStatusNote('Sync error (background check) · ' + moment().format('HH:mm:ss'));
     }
   });
 }
@@ -5959,12 +5976,12 @@ function synchToServer(silent) {
 // Download data from server
 function synchFromServer(silent) {
   if (!isLoggedIn()) {
-    if (!silent) setFeedback('Please login to sync', 'error');
+    synchStatusNote('Not logged in');
     synchIconStatus("error");
     return;
   }
 
-  if (!silent) setFeedback('Synching from server...');
+  synchStatusNote('Synching from server...');
   synchIconStatus("synching");
 
   ajaxReq({
@@ -5999,13 +6016,13 @@ function synchFromServer(silent) {
         applyServerGlobalState(serverData.globalState);
 
         ttSave();
-        if (!silent) setFeedback('Data successfully synced from server.');
+        synchStatusNote('Synced from server · ' + moment().format('HH:mm:ss'));
         synchIconStatus("done");
         syncInProgress = false;
         emitEvent('server', 'synch');
 
       } else {
-        if (!silent) setFeedback('Sync completed (no server data)', 'notice');
+        synchStatusNote('Sync completed (no server data) · ' + moment().format('HH:mm:ss'));
         synchIconStatus("done");
         syncInProgress = false;
       }
@@ -6015,12 +6032,13 @@ function synchFromServer(silent) {
       if (xhr.status === 401) {
         // Always show session expiry — it needs user action
         setFeedback('Session expired. Please login again.', 'error');
+        synchStatusNote('Session expired');
         authToken = null;
         delete localStorage.authToken;
         if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
-        if (!silent) setFeedback('Error synching from server: ' + thrownError, 'error');
+        synchStatusNote('Sync error: ' + thrownError);
       }
       synchIconStatus("error");
       syncInProgress = false;
@@ -6031,7 +6049,7 @@ function synchFromServer(silent) {
 // Incremental sync - sends only queued changes
 function synchIncremental(silent) {
   if (!isLoggedIn()) {
-    if (!silent) setFeedback('Please login to sync', 'error');
+    synchStatusNote('Not logged in');
     return;
   }
 
@@ -6081,19 +6099,17 @@ function synchIncremental(silent) {
         applyServerGlobalState(result.globalState);
 
         ttSave();
-        if (!silent) {
-          var msg = 'Synced';
-          if (result.stats) {
-            if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
-            if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
-          }
-          setFeedback(msg);
+        var msg = 'Synced';
+        if (result.stats) {
+          if (result.stats.accepted > 0) msg += ' (sent ' + result.stats.accepted + ')';
+          if (result.stats.returned > 0) msg += ' (received ' + result.stats.returned + ')';
         }
+        synchStatusNote(msg + ' · ' + moment().format('HH:mm:ss'));
         synchIconStatus("done");
         syncInProgress = false;
         emitEvent('server', 'synch');
       } else {
-        if (!silent) setFeedback('Sync error: ' + (result.error || 'Unknown'), 'error');
+        synchStatusNote('Sync error: ' + (result.error || 'Unknown'));
         synchIconStatus("error");
         syncInProgress = false;
       }
@@ -6102,12 +6118,13 @@ function synchIncremental(silent) {
       if (xhr.status === 401) {
         // Always show session expiry — it needs user action
         setFeedback('Session expired. Please login again.', 'error');
+        synchStatusNote('Session expired');
         authToken = null;
         delete localStorage.authToken;
         if (nativeBridge.ready) nativeBridge.persist();
         updateAuthUI();
       } else {
-        if (!silent) setFeedback('Sync error: ' + thrownError, 'error');
+        synchStatusNote('Sync error: ' + thrownError);
       }
       synchIconStatus("error");
       syncInProgress = false;
