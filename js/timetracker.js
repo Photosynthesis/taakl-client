@@ -643,6 +643,17 @@ function ttInitCore(){
    // Update auth UI on init
    updateAuthUI();
 
+   // Once a day, restart the pull cursor: the epoch re-pull re-delivers every
+   // row, healing any divergence a cursor-based pull can never see (changes
+   // that were dropped, rejected, or missed while this device was offline)
+   var repullDay = moment().format('YYYY-MM-DD');
+   if (isLoggedIn() && localStorage.ttLastFullRepull !== repullDay) {
+     ttData.lastSyncTime = null;
+     ttSave();
+     localStorage.ttLastFullRepull = repullDay;
+     if (nativeBridge.ready) nativeBridge.persist();
+   }
+
    if(getSetting("auto_synch") == "yes" && isLoggedIn()){
      synchToServer();
      startAutoSync();
@@ -6943,6 +6954,14 @@ function resetDailyTasks() {
     if (node.status !== 'completed') continue;
     if (id === activeNodeId) continue;
     if (!taskHasTags(node, ['daily'])) continue;
+
+    // Never reset a completion made within the current logical day. This runs
+    // at startup against pre-sync local data, so without this guard a device
+    // waking up would un-complete tasks finished today on another device.
+    if (Array.isArray(node.completed_at) && node.completed_at.length > 0) {
+      var lastDone = node.completed_at[node.completed_at.length - 1];
+      if (moment(lastDone).subtract(3, 'hours').format('YYYY-MM-DD') === logicalDate) continue;
+    }
 
     node.status = 'new';
     anyReset = true;

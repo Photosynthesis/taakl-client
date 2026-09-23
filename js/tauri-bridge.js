@@ -18,7 +18,8 @@ var nativeBridge = (function() {
     'ttSessionId',
     'authToken',
     'todayStarredOrder',
-    'ttLastDailyReset'
+    'ttLastDailyReset',
+    'ttLastFullRepull'
   ];
 
   var store = null;
