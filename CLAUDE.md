@@ -87,11 +87,13 @@ Common events: `node/updated`, `node/added`, `node/deleted`, `session/ended`, `s
 
 ### Server Sync
 
-Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (action/type/uuid/data/timestamp) and sent via `synchToServer()`. JWT auth token stored in `localStorage.authToken`.
+Optional sync to `https://api.taakl.app`. Changes are queued in `synchQueue` (action/type/uuid/data/timestamp) and sent via `synchToServer()`. JWT auth token stored in `localStorage.authToken`. When idle (empty queue), the 30s auto-sync tick calls `pollServerChanges()` — a delta pull (`POST /api/sync` with empty `changes`) so remote activity shows up without a full download.
 
 ### Session Tracking
 
 `startNodeSession()` → timer runs → `endNodeSession()`. Active session ID stored in `localStorage.ttSessionId`, active node in `localStorage.ttCurrentNodeId`. Elapsed time shows in the browser tab title.
+
+**Cross-device running sessions:** the running session is published via the account-global state map `ttData.globalState` — `setGlobalState('tracking', { nodeId, sessionId })` on start, null ids on stop. Each entry is `{ value, updated_at }`; the map rides along on every sync and the server (`user_global_state` table) merges it last-write-wins per key by the client-stamped UTC `updated_at`. `applyServerGlobalState()` merges the returned map and runs key-specific handlers; `adoptRemoteTracking()` — only when this device is idle — adopts the remote session's timer UI via `continueNodeSession()`. A session ended elsewhere is stopped by `refreshSessionRefs()` (the synced `end_time` triggers the abort), never by the pointer. New roaming state = new key + client handler; no schema or server change.
 
 ## Code Conventions
 

@@ -3251,6 +3251,9 @@ function startNodeSession() {
   localStorage.ttSessionId = current_session.id;
   if (nativeBridge.ready) nativeBridge.persist();
 
+  // Publish the running session so other devices can adopt it on sync
+  setGlobalState('tracking', { nodeId: current_node.id, sessionId: current_session.id });
+
   counterId = setInterval(incrementCurrentDuration, 1000);
   showNodeInSession();
   ttSave();
@@ -3371,6 +3374,9 @@ function endNodeSession(markComplete) {
   delete localStorage.ttSessionCollapsed; // next session starts collapsed (the default)
   if (nativeBridge.ready) nativeBridge.persist();
 
+  // Clear the synced tracking pointer (fresh timestamp so LWW propagates the stop)
+  setGlobalState('tracking', { nodeId: null, sessionId: null });
+
   console.log('[SESSION END] After clearing current_session, sessions still in ttData?',
     ttData.nodes[current_node.id].sessions[pastSessionId]);
 
@@ -3446,6 +3452,73 @@ function refreshSessionRefs() {
     // Merge dropped the open session (server copy predates it) — restore ours
     node.sessions[sessId] = current_session;
   }
+}
+
+/**
+ * Set a key in the account-global synced state (ttData.globalState).
+ * Entries are { value, updated_at } — the client-stamped UTC timestamp
+ * drives last-write-wins merging on the server and other devices.
+ */
+function setGlobalState(key, value) {
+  if (!ttData.globalState) ttData.globalState = {};
+  ttData.globalState[key] = {
+    value: value,
+    updated_at: new Date().toISOString().replace('T', ' ').substr(0, 19)
+  };
+}
+
+/**
+ * Merge the account-global state map returned by the server (last-write-wins
+ * per key against the local copy), then run the key-specific handler for each
+ * key the server won. Returns true if anything changed.
+ */
+function applyServerGlobalState(serverState) {
+  if (!serverState) return false;
+
+  if (!ttData.globalState) ttData.globalState = {};
+  var changed = false;
+
+  for (var key in serverState) {
+    var remote = serverState[key];
+    if (!remote || !remote.updated_at) continue;
+
+    var local = ttData.globalState[key];
+    if (local && local.updated_at && local.updated_at >= remote.updated_at) {
+      continue; // local entry is newer; it will be pushed on next sync
+    }
+
+    ttData.globalState[key] = remote;
+    changed = true;
+
+    if (key === 'tracking') adoptRemoteTracking(remote.value);
+  }
+
+  return changed;
+}
+
+/**
+ * Handler for the synced 'tracking' key: adopt the remote running session's
+ * timer UI, but only when this device is idle. A session ended elsewhere is
+ * handled by refreshSessionRefs (the session's end_time syncs too), so this
+ * only ever starts a timer, never stops one.
+ */
+function adoptRemoteTracking(tracking) {
+  if (current_session || !tracking || !tracking.sessionId || !tracking.nodeId) return;
+
+  var node = getNode(tracking.nodeId);
+  var sess = node && node.sessions ? node.sessions[tracking.sessionId] : null;
+  if (!sess || sess.end_time) return;
+
+  current_node = node;
+  current_node_path = getNodePath(node.id);
+  current_session = sess;
+  localStorage.ttCurrentNodeId = node.id;
+  localStorage.ttSessionId = sess.id;
+  if (nativeBridge.ready) nativeBridge.persist();
+
+  continueNodeSession();
+  treeView.update();
+  setFeedback('Adopted running session from another device.', 'notice');
 }
 
 
@@ -5799,8 +5872,55 @@ function startAutoSync() {
                           (synchQueue.queue && synchQueue.queue.length > 0);
     if (hasLocalChanges) {
       synchToServer(true); // silent: icon animation only, no feedback message
+    } else if (ttData.lastSyncTime) {
+      pollServerChanges(); // delta pull so an idle device sees remote activity
     }
   }, 30000);
+}
+
+// Background delta pull for an idle device: asks the server for changes since
+// lastSyncTime without pushing anything, so sessions started (and edits made)
+// on another device show up here without a manual sync or full download.
+function pollServerChanges() {
+  syncInProgress = true;
+
+  ajaxReq({
+    url: serverConfig.baseUrl + serverConfig.endpoints.sync,
+    type: 'POST',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    data: JSON.stringify({
+      lastSyncTime: ttData.lastSyncTime,
+      changes: [],
+      globalState: ttData.globalState || null
+    }),
+    success: function(result) {
+      syncInProgress = false;
+      if (!result.success) return;
+
+      var hadChanges = result.changes && result.changes.length > 0;
+      if (hadChanges) {
+        applyServerChanges(result.changes);
+        refreshSessionRefs();
+        if (result.rootOrder && Array.isArray(result.rootOrder)) {
+          ttData.rootOrder = mergeRootOrder(ttData.rootOrder || [], result.rootOrder, ttData.nodes || {});
+        }
+      }
+
+      var stateChanged = applyServerGlobalState(result.globalState);
+
+      // Quiet polls leave lastSyncTime alone: re-scanning the same window is
+      // idempotent, and skipping the save avoids re-rendering views every tick
+      if (hadChanges || stateChanged) {
+        ttData.lastSyncTime = result.serverTime;
+        ttSave();
+        emitEvent('server', 'synch');
+      }
+    },
+    error: function() {
+      syncInProgress = false;
+    }
+  });
 }
 
 function stopAutoSync() {
@@ -5876,6 +5996,7 @@ function synchFromServer(silent) {
         // Smart merge instead of destructive replace
         mergeServerData(serverData);
         refreshSessionRefs();
+        applyServerGlobalState(serverData.globalState);
 
         ttSave();
         if (!silent) setFeedback('Data successfully synced from server.');
@@ -5925,7 +6046,8 @@ function synchIncremental(silent) {
 
   var syncData = {
     lastSyncTime: ttData.lastSyncTime,
-    changes: synchQueue.queue
+    changes: synchQueue.queue,
+    globalState: ttData.globalState || null
   };
 
   ajaxReq({
@@ -5955,6 +6077,8 @@ function synchIncremental(silent) {
         if (result.rootOrder && Array.isArray(result.rootOrder)) {
           ttData.rootOrder = mergeRootOrder(ttData.rootOrder || [], result.rootOrder, ttData.nodes || {});
         }
+
+        applyServerGlobalState(result.globalState);
 
         ttSave();
         if (!silent) {
