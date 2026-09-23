@@ -1183,6 +1183,7 @@ function saveGeneralEditForm(type,id){
         if(ttData.nodes[nodeId].time !== undefined){
           delete ttData.nodes[nodeId].time;
         }
+        synchQueue.add("update", "node_session", id, nodeId);
         break;
       }
     }
@@ -1217,12 +1218,15 @@ function deleteGeneralFromEditForm(type,id){
       for(var nodeId in ttData.nodes){
         if(ttData.nodes[nodeId].sessions && ttData.nodes[nodeId].sessions[id]){
           delete ttData.nodes[nodeId].sessions[id];
+          synchQueue.add("delete", "node_session", id, nodeId);
           break;
         }
       }
     }else if(ttData.nodes[id]){
       // Delete node
+      var parentId = ttData.nodes[id].parentId;
       deleteNodeLocally(id);
+      synchQueue.add("delete", "node", id, parentId);
     }
 
     ttSave();
