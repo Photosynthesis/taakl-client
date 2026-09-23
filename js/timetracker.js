@@ -684,7 +684,8 @@ function continueSession(){
 /* --- Collapsible session timer --- */
 
 function isSessionCollapsed(){
-  return localStorage.ttSessionCollapsed === '1';
+  // The collapsed top bar is the default; '0' means the user expanded to fullscreen
+  return localStorage.ttSessionCollapsed !== '0';
 }
 
 function toggleSessionCollapse(){
@@ -701,7 +702,7 @@ function collapseSessionTimer(){
 }
 
 function expandSessionTimer(){
-  delete localStorage.ttSessionCollapsed;
+  localStorage.ttSessionCollapsed = '0';
   applySessionLayout();
 }
 
@@ -3071,11 +3072,9 @@ treeView.startSession = function(nodeId) {
   }
 
   // Another session is running (reachable while the timer is collapsed):
-  // end it before switching, keeping the collapsed bar if that's where we are
+  // end it before switching; the next session starts collapsed by default
   if (current_session) {
-    var wasCollapsed = isSessionCollapsed();
     endNodeSession(false);
-    if (wasCollapsed) localStorage.ttSessionCollapsed = '1';
   }
 
   current_node = node;
@@ -3369,7 +3368,7 @@ function endNodeSession(markComplete) {
 
   current_session = '';
   delete localStorage.ttSessionId;
-  delete localStorage.ttSessionCollapsed; // next session starts full-screen
+  delete localStorage.ttSessionCollapsed; // next session starts collapsed (the default)
   if (nativeBridge.ready) nativeBridge.persist();
 
   console.log('[SESSION END] After clearing current_session, sessions still in ttData?',
@@ -3706,6 +3705,57 @@ analyze.fmtClock = function(min) {
   return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
 };
 
+/* --- 3 AM day cutoff ---------------------------------------------------
+ * Review uses the same day boundary as the Today view: a "day" runs from
+ * 03:00 to 03:00, so late-night work counts toward the evening it belongs
+ * to. Times are positioned in "display minutes" (minutes since the day's
+ * 03:00 start); clockOf() converts back to wall-clock labels.
+ */
+analyze.CUTOFF_MIN = 180;
+
+/**
+ * 'YYYY-MM-DD HH:mm:ss' -> the cutoff-shifted day it belongs to
+ */
+analyze.dayOf = function(ts) {
+  return moment(ts).subtract(3, 'hours').format('YYYY-MM-DD');
+};
+
+/**
+ * Today under the cutoff (at 01:30 this is still "yesterday")
+ */
+analyze.reviewToday = function() {
+  return moment().subtract(3, 'hours').format('YYYY-MM-DD');
+};
+
+/**
+ * 'YYYY-MM-DD HH:mm:ss' -> minutes since its day's 03:00 start (0..1439)
+ */
+analyze.dispMinOf = function(ts) {
+  var m = analyze.minOfDay(ts) - analyze.CUTOFF_MIN;
+  return m < 0 ? m + 1440 : m;
+};
+
+/**
+ * Display minutes -> wall-clock label ('23:40' for disp 1240)
+ */
+analyze.clockOf = function(disp) {
+  return analyze.fmtClock((disp + analyze.CUTOFF_MIN) % 1440);
+};
+
+/**
+ * Sessions whose cutoff-shifted day falls within [start, end]
+ */
+analyze.getSessionsForDays = function(start, end) {
+  var qEnd = moment(end).add(1, 'day').format('YYYY-MM-DD');
+  var sessions = analyze.getSessionsInRange(start, qEnd);
+  var out = [];
+  for (var i = 0; i < sessions.length; i++) {
+    var ds = analyze.dayOf(sessions[i].start_time);
+    if (ds >= start && ds <= end) out.push(sessions[i]);
+  }
+  return out;
+};
+
 /**
  * Seconds -> decimal hours string ('1.53')
  */
@@ -3762,7 +3812,8 @@ analyze.getCompletionsInRange = function(start, end) {
     for (var i = 0; i < node.completed_at.length; i++) {
       var m = moment(node.completed_at[i]);
       if (!m.isValid()) continue;
-      var ds = m.format('YYYY-MM-DD');
+      var shifted = m.clone().subtract(3, 'hours');
+      var ds = shifted.format('YYYY-MM-DD');
       if (ds < start || ds > end) continue;
       if (!path) path = getNodePath(nodeId);
       out.push({
@@ -3770,22 +3821,22 @@ analyze.getCompletionsInRange = function(start, end) {
         name: node.name,
         path: path,
         ds: ds,
-        min: m.hours() * 60 + m.minutes()
+        disp: shifted.hours() * 60 + shifted.minutes()
       });
     }
   }
 
   out.sort(function(a, b) {
-    return a.ds === b.ds ? a.min - b.min : (a.ds < b.ds ? -1 : 1);
+    return a.ds === b.ds ? a.disp - b.disp : (a.ds < b.ds ? -1 : 1);
   });
   return out;
 };
 
 /**
  * Bucket sessions + completions into per-day structures for calendar display.
- * Sessions crossing midnight are split into one segment per day. The query
- * starts one day early so a session that started the previous evening and ran
- * past midnight still contributes its after-midnight segment.
+ * Days follow the 3 AM cutoff; a session crossing its day's 03:00 end splits
+ * into one segment per day. Segment positions are display minutes (minutes
+ * since the day's 03:00 start).
  * Returns { 'YYYY-MM-DD': { segs: [{startMin, endMin, ses}], comps: [...] } }
  */
 analyze.getCalendarDays = function(start, end) {
@@ -3795,14 +3846,13 @@ analyze.getCalendarDays = function(start, end) {
     return days[ds];
   }
 
-  var queryStart = moment(start).subtract(1, 'day').format('YYYY-MM-DD');
-  var sessions = analyze.getSessionsInRange(queryStart, end);
+  var sessions = analyze.getSessionsForDays(start, end);
   for (var i = 0; i < sessions.length; i++) {
     var ses = sessions[i];
-    var sDs = ses.start_time.substr(0, 10);
-    var eDs = ses.end_time.substr(0, 10);
-    var sMin = analyze.minOfDay(ses.start_time);
-    var eMin = analyze.minOfDay(ses.end_time);
+    var sDs = analyze.dayOf(ses.start_time);
+    var eDs = analyze.dayOf(ses.end_time);
+    var sMin = analyze.dispMinOf(ses.start_time);
+    var eMin = analyze.dispMinOf(ses.end_time);
 
     if (sDs === eDs) {
       if (eMin > sMin) bucket(sDs).segs.push({ startMin: sMin, endMin: eMin, ses: ses });
@@ -3834,7 +3884,11 @@ analyze.getCalendarDays = function(start, end) {
  * Show the analyze view
  */
 analyze.show = function() {
-  if (!analyze.anchor) analyze.anchor = moment().format('YYYY-MM-DD');
+  // Also repairs a corrupted anchor: controls are clickable during the view
+  // slide-in before show() runs, and moment('') formats to 'Invalid date'
+  if (!analyze.anchor || !moment(analyze.anchor).isValid()) {
+    analyze.anchor = analyze.reviewToday();
+  }
 
   try {
     var prefs = JSON.parse(localStorage.ttReviewPrefs || '{}');
@@ -3934,12 +3988,14 @@ analyze.setCalView = function(view) {
 
 analyze.calNav = function(dir) {
   var unit = analyze.calView === 'day' ? 'day' : analyze.calView === 'week' ? 'week' : 'month';
-  analyze.anchor = moment(analyze.anchor).add(dir, unit).format('YYYY-MM-DD');
+  var m = moment(analyze.anchor);
+  if (!m.isValid()) m = moment(analyze.reviewToday());
+  analyze.anchor = m.add(dir, unit).format('YYYY-MM-DD');
   analyze.refresh();
 };
 
 analyze.calToday = function() {
-  analyze.anchor = moment().format('YYYY-MM-DD');
+  analyze.anchor = analyze.reviewToday();
   analyze.refresh();
 };
 
@@ -3956,7 +4012,7 @@ analyze.calGoto = function(ds) {
 analyze.setProjPreset = function(preset) {
   analyze.projPreset = preset;
   if (preset === 'custom' && (!analyze.customRange.start || !analyze.customRange.end)) {
-    var r = analyze.getDateRange('month');
+    var r = analyze.getReviewRange('month');
     analyze.customRange = r;
     var sf = gebi('analyze-start-date');
     var ef = gebi('analyze-end-date');
@@ -3977,11 +4033,48 @@ analyze.projJump = function(level) {
 };
 
 /**
+ * Same presets as getDateRange, but "now" honors the 3 AM day cutoff.
+ * getDateRange itself is shared (tree Recent filter, share viewer) and
+ * keeps true calendar days.
+ */
+analyze.getReviewRange = function(preset) {
+  var now = moment().subtract(3, 'hours');
+  var start, end;
+
+  switch (preset) {
+    case 'week':
+      start = now.clone().startOf('isoWeek');
+      end = now.clone();
+      break;
+    case 'lastweek':
+      start = now.clone().subtract(1, 'week').startOf('isoWeek');
+      end = now.clone().subtract(1, 'week').endOf('isoWeek');
+      break;
+    case 'month':
+      start = now.clone().startOf('month');
+      end = now.clone();
+      break;
+    case 'lastmonth':
+      start = now.clone().subtract(1, 'month').startOf('month');
+      end = now.clone().subtract(1, 'month').endOf('month');
+      break;
+    default:
+      start = now.clone().startOf('month');
+      end = now.clone();
+  }
+
+  return {
+    start: start.format('YYYY-MM-DD'),
+    end: end.format('YYYY-MM-DD')
+  };
+};
+
+/**
  * Effective Projects-lens date range
  */
 analyze.projRangeOf = function() {
   if (analyze.projPreset === 'custom') return analyze.customRange;
-  return analyze.getDateRange(analyze.projPreset);
+  return analyze.getReviewRange(analyze.projPreset);
 };
 
 /* ------------------------------ billing prefs ------------------------------ */
@@ -4114,7 +4207,7 @@ analyze.renderCalDay = function() {
   var ds = analyze.anchor;
   var days = analyze.getCalendarDays(ds, ds);
   var day = days[ds] || { segs: [], comps: [] };
-  var isToday = ds === moment().format('YYYY-MM-DD');
+  var isToday = ds === analyze.reviewToday();
 
   var html = '<div class="rv-day-layout">';
   html += '<div class="rv-card rv-cal-card">' + analyze.dayCanvasHTML(day, isToday) + '</div>';
@@ -4127,7 +4220,7 @@ analyze.renderCalDay = function() {
  * The positioned day column: hour grid, session blocks, completion markers
  */
 analyze.dayCanvasHTML = function(day, isToday) {
-  var nowMin = moment().hours() * 60 + moment().minutes();
+  var nowMin = analyze.dispMinOf(moment().format('YYYY-MM-DD HH:mm:ss'));
   var i;
 
   if (day.segs.length === 0 && day.comps.length === 0) {
@@ -4140,8 +4233,8 @@ analyze.dayCanvasHTML = function(day, isToday) {
     if (day.segs[i].endMin > maxM) maxM = day.segs[i].endMin;
   }
   for (i = 0; i < day.comps.length; i++) {
-    if (day.comps[i].min < minM) minM = day.comps[i].min;
-    if (day.comps[i].min > maxM) maxM = day.comps[i].min;
+    if (day.comps[i].disp < minM) minM = day.comps[i].disp;
+    if (day.comps[i].disp > maxM) maxM = day.comps[i].disp;
   }
   if (isToday && nowMin > maxM) maxM = nowMin;
 
@@ -4156,7 +4249,7 @@ analyze.dayCanvasHTML = function(day, isToday) {
 
   for (var h = h0; h <= h1; h++) {
     html += '<div class="rv-hline" style="top:' + y(h * 60) + 'px"></div>';
-    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.fmtClock(h * 60) + '</div>';
+    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.clockOf(h * 60) + '</div>';
   }
 
   for (i = 0; i < day.segs.length; i++) {
@@ -4166,7 +4259,7 @@ analyze.dayCanvasHTML = function(day, isToday) {
     var ht = Math.max(12, y(seg.endMin) - y(seg.startMin) - 2);
     var size = ht >= 46 ? 'tall' : (ht >= 26 ? 'mid' : 'slim');
     var crumb = analyze.pathNames(ses.path, 0, ses.path.length - 1);
-    var timeStr = analyze.fmtClock(seg.startMin) + '–' + (ses.live ? 'now' : analyze.fmtClock(seg.endMin));
+    var timeStr = analyze.clockOf(seg.startMin) + '–' + (ses.live ? 'now' : analyze.clockOf(seg.endMin));
     var durStr = analyze.formatDuration((seg.endMin - seg.startMin) * 60);
     var tip = analyze.pathNames(ses.path, 0, ses.path.length) + '\n' + timeStr + ' · ' + durStr +
               (ses.live ? ' · tracking now' : '');
@@ -4186,15 +4279,15 @@ analyze.dayCanvasHTML = function(day, isToday) {
   for (i = 0; i < day.comps.length; i++) {
     var c = day.comps[i];
     var ccolor = analyze.getNodeColor(c.path[0].id);
-    var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\nmarked complete at ' + analyze.fmtClock(c.min);
-    html += '<div class="rv-comp-line" style="top:' + y(c.min) + 'px;border-color:' + ccolor + '"></div>';
-    html += '<div class="rv-comp-chip" title="' + analyze.escAttr(ctip) + '" style="top:' + y(c.min) + 'px">' +
+    var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\nmarked complete at ' + analyze.clockOf(c.disp);
+    html += '<div class="rv-comp-line" style="top:' + y(c.disp) + 'px;border-color:' + ccolor + '"></div>';
+    html += '<div class="rv-comp-chip" title="' + analyze.escAttr(ctip) + '" style="top:' + y(c.disp) + 'px">' +
             '<span class="rv-comp-check" style="color:' + ccolor + '">✓</span>' + escapeHtml(c.name) +
-            '<span class="rv-comp-time">' + analyze.fmtClock(c.min) + '</span></div>';
+            '<span class="rv-comp-time">' + analyze.clockOf(c.disp) + '</span></div>';
   }
 
   if (isToday && nowMin >= h0 * 60 && nowMin <= h1 * 60) {
-    html += '<div class="rv-now-line" style="top:' + y(nowMin) + 'px"><span>' + analyze.fmtClock(nowMin) + '</span></div>';
+    html += '<div class="rv-now-line" style="top:' + y(nowMin) + 'px"><span>' + analyze.clockOf(nowMin) + '</span></div>';
   }
 
   html += '</div>';
@@ -4208,9 +4301,9 @@ analyze.renderCalWeek = function() {
   for (i = 0; i < 7; i++) dayList.push(mon.clone().add(i, 'day').format('YYYY-MM-DD'));
 
   var days = analyze.getCalendarDays(dayList[0], dayList[6]);
-  var today = moment().format('YYYY-MM-DD');
+  var today = analyze.reviewToday();
 
-  var minM = 8 * 60, maxM = 18 * 60;
+  var minM = 5 * 60, maxM = 15 * 60; /* display minutes: 08:00–18:00 wall clock */
   for (i = 0; i < 7; i++) {
     var dd = days[dayList[i]];
     if (!dd) continue;
@@ -4219,8 +4312,8 @@ analyze.renderCalWeek = function() {
       if (dd.segs[j].endMin > maxM) maxM = dd.segs[j].endMin;
     }
     for (j = 0; j < dd.comps.length; j++) {
-      if (dd.comps[j].min < minM) minM = dd.comps[j].min;
-      if (dd.comps[j].min > maxM) maxM = dd.comps[j].min;
+      if (dd.comps[j].disp < minM) minM = dd.comps[j].disp;
+      if (dd.comps[j].disp > maxM) maxM = dd.comps[j].disp;
     }
   }
   var h0 = Math.floor(minM / 60);
@@ -4252,7 +4345,7 @@ analyze.renderCalWeek = function() {
   html += '<div class="rv-wg-lines"></div>';
   html += '<div class="rv-wg-gutter">';
   for (var h = h0; h < h1; h++) {
-    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.fmtClock(h * 60) + '</div>';
+    html += '<div class="rv-hlabel" style="top:' + y(h * 60) + 'px">' + analyze.clockOf(h * 60) + '</div>';
   }
   html += '</div>';
 
@@ -4267,7 +4360,7 @@ analyze.renderCalWeek = function() {
       var color = analyze.getNodeColor(seg.ses.path[0].id);
       var ht = Math.max(4, y(seg.endMin) - y(seg.startMin) - 1);
       var tip = analyze.pathNames(seg.ses.path, 0, seg.ses.path.length) + '\n' +
-                analyze.fmtClock(seg.startMin) + '–' + (seg.ses.live ? 'now' : analyze.fmtClock(seg.endMin)) +
+                analyze.clockOf(seg.startMin) + '–' + (seg.ses.live ? 'now' : analyze.clockOf(seg.endMin)) +
                 ' · ' + analyze.formatDuration((seg.endMin - seg.startMin) * 60);
       html += '<div class="rv-wblock" title="' + analyze.escAttr(tip) + '"' +
               ' style="top:' + y(seg.startMin) + 'px;height:' + ht + 'px;border-left-color:' + color +
@@ -4278,9 +4371,9 @@ analyze.renderCalWeek = function() {
     for (j = 0; j < col.comps.length; j++) {
       var c = col.comps[j];
       var ccolor = analyze.getNodeColor(c.path[0].id);
-      var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\n✓ complete at ' + analyze.fmtClock(c.min);
+      var ctip = analyze.pathNames(c.path, 0, c.path.length) + '\n✓ complete at ' + analyze.clockOf(c.disp);
       html += '<div class="rv-wcomp" title="' + analyze.escAttr(ctip) + '"' +
-              ' style="top:' + y(c.min) + 'px;border-color:' + ccolor + '"></div>';
+              ' style="top:' + y(c.disp) + 'px;border-color:' + ccolor + '"></div>';
     }
 
     html += '</div>';
@@ -4296,7 +4389,7 @@ analyze.renderCalMonth = function() {
   var gridStart = m0.clone().startOf('isoWeek');
   var gridEnd = m0.clone().endOf('month').endOf('isoWeek');
   var days = analyze.getCalendarDays(gridStart.format('YYYY-MM-DD'), gridEnd.format('YYYY-MM-DD'));
-  var today = moment().format('YYYY-MM-DD');
+  var today = analyze.reviewToday();
   var i, j;
 
   var html = '<div class="rv-card rv-cal-card">';
@@ -4374,6 +4467,7 @@ analyze.renderCalMonth = function() {
 analyze.calStatsHTML = function(scope, dayList, daysData) {
   var totalSecs = 0, compCount = 0, sesCount = 0;
   var sesSeen = {};
+  var doneSeen = {}, estSecs = 0, actSecs = 0, estCount = 0;
   var cats = {}, catOrder = [];
   var firstMin = null, lastMin = null;
   var longest = null, live = null;
@@ -4409,6 +4503,19 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
     }
 
     compCount += day.comps.length;
+    // Estimate vs actual for tasks completed in range (each node once);
+    // "actual" is the node's lifetime tracked time incl. descendants.
+    for (j = 0; j < day.comps.length; j++) {
+      var dnId = day.comps[j].nodeId;
+      if (doneSeen[dnId]) continue;
+      doneSeen[dnId] = true;
+      var dnode = getNode(dnId);
+      if (dnode && dnode.estimate > 0) {
+        estSecs += dnode.estimate;
+        actSecs += calculateNodeTime(dnId);
+        estCount++;
+      }
+    }
     perDay.push({ ds: ds, secs: daySecs, comps: day.comps.length });
   }
 
@@ -4430,8 +4537,8 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
   html += '<div><b>' + sesCount + '</b><span>sessions</span></div>';
   html += '<div><b>' + compCount + '</b><span>completed</span></div>';
   if (scope === 'day') {
-    html += '<div><b>' + (firstMin !== null ? analyze.fmtClock(firstMin) : '—') + '</b><span>first start</span></div>';
-    html += '<div><b>' + (lastMin !== null ? analyze.fmtClock(lastMin) : '—') + '</b><span>last stop</span></div>';
+    html += '<div><b>' + (firstMin !== null ? analyze.clockOf(firstMin) : '—') + '</b><span>first start</span></div>';
+    html += '<div><b>' + (lastMin !== null ? analyze.clockOf(lastMin) : '—') + '</b><span>last stop</span></div>';
     html += '<div><b>' + (longest ? analyze.formatDuration(longest.durationSecs) : '—') + '</b><span>longest session</span></div>';
     html += '<div><b>' + (sesCount ? analyze.formatDuration(totalSecs / sesCount) : '—') + '</b><span>avg session</span></div>';
   } else {
@@ -4447,6 +4554,11 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
       html += '<div><b>' + moment(busiest.ds).format('ddd D') + '</b><span>busiest day</span></div>';
       html += '<div><b>' + analyze.formatDuration(busiest.secs) + '</b><span>on busiest day</span></div>';
     }
+  }
+  if (estCount) {
+    html += '<div><b>' + analyze.formatDuration(estSecs) + '</b><span>estimated (completed)</span></div>';
+    html += '<div><b class="' + (actSecs <= estSecs ? 'rv-under' : 'rv-over') + '">' +
+            analyze.formatDuration(actSecs) + '</b><span>actual (completed)</span></div>';
   }
   html += '</div></div>';
 
@@ -4480,10 +4592,19 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
       for (i = 0; i < comps.length; i++) {
         var c = comps[i];
         var crumb = analyze.pathNames(c.path, 0, c.path.length - 1);
-        html += '<li><span class="rv-done-time">' + analyze.fmtClock(c.min) + '</span>' +
+        var estHtml = '';
+        var cNode = getNode(c.nodeId);
+        if (cNode && cNode.estimate > 0) {
+          var cAct = calculateNodeTime(c.nodeId);
+          estHtml = '<span class="rv-done-est">est ' + analyze.formatDuration(cNode.estimate) +
+                    ' · <em class="' + (cAct <= cNode.estimate ? 'rv-under' : 'rv-over') + '">' +
+                    analyze.formatDuration(cAct) + '</em></span>';
+        }
+        html += '<li><span class="rv-done-time">' + analyze.clockOf(c.disp) + '</span>' +
                 '<span class="rv-done-check" style="color:' + analyze.getNodeColor(c.path[0].id) + '">✓</span>' +
                 '<span>' + escapeHtml(c.name) +
-                (crumb ? '<span class="rv-done-crumb">' + escapeHtml(crumb) + '</span>' : '') + '</span></li>';
+                (crumb ? '<span class="rv-done-crumb">' + escapeHtml(crumb) + '</span>' : '') +
+                estHtml + '</span></li>';
       }
       html += '</ul>';
     }
@@ -4493,7 +4614,7 @@ analyze.calStatsHTML = function(scope, dayList, daysData) {
     for (i = 0; i < perDay.length; i++) {
       if (perDay[i].secs > maxDay) maxDay = perDay[i].secs;
     }
-    var todayDs = moment().format('YYYY-MM-DD');
+    var todayDs = analyze.reviewToday();
     html += '<div class="rv-card rv-stat-card">';
     html += '<div class="rv-stat-label">Daily rhythm</div>';
     html += '<div class="rv-spark' + (scope === 'month' ? ' rv-spark-month' : '') + '">';
@@ -4527,7 +4648,7 @@ analyze.renderProjects = function() {
   var parentId = analyze.projParentId();
   var i, j;
 
-  var sessions = analyze.getSessionsInRange(range.start, range.end);
+  var sessions = analyze.getSessionsForDays(range.start, range.end);
   var scoped = [];
   for (i = 0; i < sessions.length; i++) {
     if (!parentId || analyze.pathHasNode(sessions[i].path, parentId)) scoped.push(sessions[i]);
@@ -4541,7 +4662,7 @@ analyze.renderProjects = function() {
   var live = null;
   for (i = 0; i < scoped.length; i++) {
     totalSecs += scoped[i].durationSecs;
-    activeSet[scoped[i].start_time.substr(0, 10)] = true;
+    activeSet[analyze.dayOf(scoped[i].start_time)] = true;
     if (scoped[i].live) live = scoped[i];
   }
   var activeDays = 0;
@@ -4648,7 +4769,7 @@ analyze.renderProjects = function() {
       var ck = analyze.findChildAtLevel(ses.path, parentId);
       var key = ck || '__direct__';
       if (!topSet[key]) key = '__other__';
-      var ds = ses.start_time.substr(0, 10);
+      var ds = analyze.dayOf(ses.start_time);
       if (!byDay[ds]) byDay[ds] = {};
       byDay[ds][key] = (byDay[ds][key] || 0) + ses.durationSecs;
     }
@@ -4806,7 +4927,7 @@ analyze.ledgerHTML = function(kids, scoped, totalSecs, parentId, range) {
 
       analyze._csvRows.push([
         analyze.csvQuote(g.nodeName),
-        ses.start_time.substr(0, 10),
+        analyze.dayOf(ses.start_time),
         analyze.fmtClock(sMin),
         ses.live ? 'now' : analyze.fmtClock(eMin),
         analyze.csvQuote(analyze.pathNames(ses.path, 0, ses.path.length)),
@@ -4817,7 +4938,7 @@ analyze.ledgerHTML = function(kids, scoped, totalSecs, parentId, range) {
       if (!billable && !analyze.billing.showNonBillable) continue;
 
       html += '<tr' + (billable ? '' : ' class="rv-ld-nobill"') + '>';
-      html += '<td class="rv-ld-time">' + moment(ses.start_time.substr(0, 10)).format('MMM DD') + ' · ' +
+      html += '<td class="rv-ld-time">' + moment(analyze.dayOf(ses.start_time)).format('MMM DD') + ' · ' +
               analyze.fmtClock(sMin) + '–' + (ses.live ? 'now' : analyze.fmtClock(eMin)) + '</td>';
       html += '<td class="rv-ld-task"><b>' + escapeHtml(ses.taskName) + '</b>' +
               (rel ? '<span>' + escapeHtml(rel) + '</span>' : '') +
