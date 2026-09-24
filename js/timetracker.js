@@ -49,7 +49,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924a';
+var THEME_CSS_VERSION = '20260924b';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -1381,6 +1381,15 @@ function getViewObj(name) {
 // Track current view name for transition logic
 var currentViewName = null;
 
+// Mark the nav link of the current view (themes style a.current-view)
+function updateNavActive(view){
+  var links = document.querySelectorAll('#view-links a');
+  for (var i = 0; i < links.length; i++) {
+    var oc = links[i].getAttribute('onclick') || '';
+    links[i].classList.toggle('current-view', oc.indexOf("'" + view + "'") !== -1);
+  }
+}
+
 function setView(view){
 
     if (viewTransitioning) return;
@@ -1407,6 +1416,7 @@ function setView(view){
     // Update currentView reference
     currentView = getViewObj(view);
     currentViewName = view;
+    updateNavActive(view);
 
     if (shouldAnimate && oldEl && newEl) {
       // Animated transition
@@ -5317,15 +5327,15 @@ todayView.filter = function(){
       for (var p = 0; p < path.length - 1; p++) {
         pathNames.push(path[p].name);
       }
-      task.metaParentage = '<span>' + escapeHtml(pathNames.join(' > ')) + '</span>';
+      task.metaParentage = '<span class="task-parentage">' + escapeHtml(pathNames.join(' > ')) + '</span>';
     } else {
       task.metaParentage = '';
     }
 
-    // Calculate time and estimate
+    // Calculate time and estimate (separators get a class so themes can restyle them)
     task.time = calculateNodeTime(task.id);
-    task.metaPrettyTime = (task.time > 0) ? ' | ' + prettyTime(task.time) : '';
-    task.metaEstimate = (task.estimate > 0) ? ' | est ' + prettyTime(task.estimate) : '';
+    task.metaPrettyTime = (task.time > 0) ? '<span class="meta-sep"> | </span>' + prettyTime(task.time) : '';
+    task.metaEstimate = (task.estimate > 0) ? '<span class="meta-sep"> | </span>est ' + prettyTime(task.estimate) : '';
 
     // Check for morning tasks (#daily + #morning in name)
     if (taskHasTags(task, ['daily', 'morning'])) {

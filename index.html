@@ -6,7 +6,7 @@
 
     <!-- link rel="stylesheet" href="css/timetracker.css" type="text/css" -->
     <!-- ?v= busts the host's 30-day asset cache; bump it when this file's assets change -->
-    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260924a" type="text/css">
+    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260924b" type="text/css">
     <link rel="stylesheet" href="css/font-awesome.min.css" type="text/css">
     <link rel="stylesheet" href="css/pikaday.css">
     <!-- Theme stylesheet: applied pre-paint from the localStorage.ttTheme mirror
@@ -17,7 +17,7 @@
         try {
           var t = localStorage.ttTheme;
           if (t && /^[a-z0-9-]+$/.test(t)) {
-            document.write('<link rel="stylesheet" id="theme-css" href="css/themes/' + t + '.css?v=20260924a">');
+            document.write('<link rel="stylesheet" id="theme-css" href="css/themes/' + t + '.css?v=20260924b">');
           }
         } catch(e) {}
       })();
@@ -27,7 +27,7 @@
     <script type="text/javascript" src="js/pikaday.js"></script>
     <script type="text/javascript" src="js/Chart.min.js"></script>
     <script type="text/javascript" src="js/plugins.conf.js"></script>
-    <script type="text/javascript" src="js/timetracker.js?v=20260924b"></script>
+    <script type="text/javascript" src="js/timetracker.js?v=20260924c"></script>
     <script type="text/javascript" src="js/tauri-bridge.js"></script>
     <script type="text/javascript" src="js/aida-chat.js"></script>
 
@@ -62,11 +62,11 @@
 
         <a href="javascript:void(0)" class="view-switch" id="assistant-button" title="Assistant" onClick="setView('assistantView')"><i class="fa fa-comments fa-lg"></i> <span>Assistant</span></a>
 
-        <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i> <span>Review</span></a>
+        <a href="#void" class="view-switch" onClick="setView('analyze')"><svg class="nav-svg" viewBox="0 0 18 18" aria-hidden="true"><path d="M3.5 15V9.5M9 15V4M14.5 15v-7"/></svg> <span>Review</span></a>
 
-        <a href="#void" class="view-switch" onClick="setView('todayView')"><i class="fa fa-clock-o fa-lg"></i> <span>Do</span></a>
+        <a href="#void" class="view-switch" onClick="setView('todayView')"><svg class="nav-svg" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7"/><path d="M6 9.3l2.1 2.1L12.4 7"/></svg> <span>Do</span></a>
 
-        <a href="#void" class="view-switch" onClick="setView('taskList')"><i class="fa fa-list fa-lg"></i> <span>Plan</span></a>
+        <a href="#void" class="view-switch" onClick="setView('taskList')"><svg class="nav-svg" viewBox="0 0 18 18" aria-hidden="true"><path d="M3 4h12M6 9h9M6 14h9"/><circle cx="3" cy="9" r="0.8" fill="currentColor" stroke="none"/><circle cx="3" cy="14" r="0.8" fill="currentColor" stroke="none"/></svg> <span>Plan</span></a>
         </div>
 
 

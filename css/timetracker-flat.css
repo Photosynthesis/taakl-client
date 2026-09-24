@@ -3325,3 +3325,16 @@ color: var(--ink);
   color: var(--ink-faint);
   margin-left: 6px;
 }
+
+/* Inline SVG nav icons (Plan / Do / Review) */
+.nav-svg{
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  display: inline-block;
+  vertical-align: -3px;
+}
