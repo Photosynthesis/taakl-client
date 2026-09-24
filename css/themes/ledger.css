@@ -1192,3 +1192,16 @@ body.theme-ledger #auth-modal input:focus{
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ---------------------------------------------------------------
+   Mobile: let Today rows wrap instead of truncating
+   --------------------------------------------------------------- */
+@media (max-width: 650px){
+  .today-task-main{ flex-wrap: wrap; row-gap: 4px; }
+  .today-task-main .task-title{
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .today-task-main .task-meta{ white-space: normal; flex: 0 1 auto; }
+}

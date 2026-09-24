@@ -54,7 +54,7 @@
   --estimate-ink: #aab;
   --due-ink: #c77;
   /* Feedback banners */
-  --notice-bg: #eeefff;
+  --notice-bg: #ededed;
   --success-bg: #ccffcc;
   --error-bg: #ffcccc;
   --error-ink: red;
@@ -67,12 +67,13 @@
   --selection-border: #cce0ff;
   --drop-target-bg: #e8f4ff;
   /* Today view section tints */
-  --today-morning-bg: #fff8e1;
-  --today-morning-border: #ffe082;
-  --today-starred-bg: #fff3e0;
-  --today-starred-border: #ffcc80;
-  --today-evening-bg: #e8eaf6;
-  --today-evening-border: #9fa8da;
+  /* Monochrome by default; themes may tint these per section */
+  --today-morning-bg: var(--bg-muted);
+  --today-morning-border: var(--hairline);
+  --today-starred-bg: var(--bg-muted);
+  --today-starred-border: var(--hairline);
+  --today-evening-bg: var(--bg-muted);
+  --today-evening-border: var(--hairline);
 }
 
 body{
@@ -768,6 +769,11 @@ color: var(--ink);
 
 /* ###################### TODAY VIEW STYLES ###################### */
 
+#today-new-task-form {
+  margin-bottom: 22px;
+}
+
+
 #todayView-view h3 {
   margin-bottom: 20px;
   color: var(--ink-mid);
@@ -778,6 +784,7 @@ color: var(--ink);
   border: 1px solid var(--hairline);
   border-radius: 8px;
   overflow: hidden;
+  background: var(--surface);
 }
 
 .today-section-header {
@@ -1009,7 +1016,9 @@ color: var(--ink);
 /* Tree container */
 #tree-container {
   margin-top: 5px;
-  padding-bottom: 100px;
+  padding: 10px 14px 60px;
+  background: var(--surface);
+  border-radius: 8px;
 }
 
 .node-tree {
