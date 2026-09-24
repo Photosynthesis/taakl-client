@@ -33,7 +33,8 @@ There are no tests, no linter, and no CI pipeline. All testing is manual via the
 
 - **`js/timetracker.js`** (~4,600 lines) — entire application logic: data model, views, sync, event system
 - **`index.html`** — single-page shell, loads all scripts, contains all HTML structure
-- **`css/timetracker-flat.css`** — primary stylesheet
+- **`css/timetracker-flat.css`** — base stylesheet (design tokens + all structural rules)
+- **`css/themes/*.css`** — optional theme stylesheets (see Themes below)
 
 ### Data Model (Node Structure)
 
@@ -94,6 +95,38 @@ Optional sync to `https://api.taakl.app`. Bearer token in `localStorage.authToke
 `startNodeSession()` → timer runs → `endNodeSession()`. Active session ID stored in `localStorage.ttSessionId`, active node in `localStorage.ttCurrentNodeId`. Elapsed time shows in the browser tab title.
 
 **Cross-device running sessions:** the running session is published via the account-global state map `ttData.globalState` — `setGlobalState('tracking', { nodeId, sessionId })` on start, null ids on stop. Each entry is `{ value, updated_at }`; the map rides along on every sync and the server (`user_global_state` table) merges it last-write-wins per key by the client-stamped UTC `updated_at`. `applyServerGlobalState()` merges the returned map and runs key-specific handlers; `adoptRemoteTracking()` — only when this device is idle — adopts the remote session's timer UI via `continueNodeSession()`. A session ended elsewhere is stopped by `refreshSessionRefs()` (the synced `end_time` triggers the abort), never by the pointer. New roaming state = new key + client handler; no schema or server change. Other globalState keys: `todayStarredOrder` (manual Today-view starred ordering; `localStorage.todayStarredOrder` remains as a legacy fallback/mirror). Sync status is shown as a tooltip on `#synch-button`, not feedback banners (`synchStatusNote()`).
+
+## Themes ("skins")
+
+The visual design is themable via stylesheet swapping; the DOM is shared by all
+themes and must stay design-neutral.
+
+- **Design tokens:** `css/timetracker-flat.css` opens with a `:root` block of
+  ~55 CSS custom properties (fonts, surface/ink ramps, semantic accents, Today
+  section tints). The rest of the file references them via `var(--…)`. The
+  default theme is just these tokens — no theme file.
+- **Theme files:** a theme is `css/themes/<key>.css`, loaded *after* the base
+  stylesheet, overriding tokens and (sparingly) component rules. Register it in
+  `availableThemes` in `timetracker.js` — that map drives the Theme `<select>`
+  in Settings. Bump `THEME_CSS_VERSION` when any theme file changes.
+- **Switching:** `applyTheme(name)` manages the `<link id="theme-css">`, a
+  `theme-<name>` class on `<body>`, and the `localStorage.ttTheme` mirror. An
+  inline `<head>` script in `index.html` reads the mirror to apply the theme
+  pre-paint (no flash of default). The chosen theme is stored in
+  `ttData.settings.theme`, so it syncs across devices like any setting.
+- **Project colors:** every tree row and Today task carries
+  `--node-color` (inline CSS variable) — the deterministic color of its
+  top-level ancestor from `analyze.getNodeColor(getRootAncestorId(id))`.
+  The default theme ignores it; themes may use `var(--node-color)` for dots,
+  tags, accents, etc.
+- **Rules for new UI:** never put cosmetic values in inline styles or JS-built
+  HTML — use classes styled in the base stylesheet with tokens. Structural
+  rules (layout, drag indicators, display toggling) live only in the base
+  stylesheet; themes override tokens and component *looks*, never behavior.
+- `mockups/` holds static design-concept mockups (`design-concepts.html` is the
+  index) and `test-drive.html`, an iframe harness that seeds sample tasks and
+  drives views for headless screenshot testing
+  (`?mode=plan|today|collapse|settings`).
 
 ## Code Conventions
 

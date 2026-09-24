@@ -36,8 +36,47 @@ var defaultSettings = {
   reminder_interval : false,
   reminder_title : "Pomodoro Complete!",
   reminder_message : "Please take a five minute break. <b>Breathe, stretch, look around!</b>",
-  reminder_delay : 1
+  reminder_delay : 1,
+  theme : "default"
 };
+
+// Themes: each non-default entry needs a stylesheet at css/themes/<key>.css
+// that overrides the design tokens (and any component rules) of the base
+// stylesheet. "default" means no extra stylesheet.
+var availableThemes = {
+  "default" : "Default"
+};
+
+// Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
+var THEME_CSS_VERSION = '20260924a';
+
+// Load/unload the theme stylesheet and set a theme-<name> class on <body>.
+// Mirrors the choice into localStorage.ttTheme so the inline <head> script in
+// index.html can apply it pre-paint on the next load.
+function applyTheme(name){
+  if (!name || !availableThemes[name]) name = 'default';
+
+  var link = document.getElementById('theme-css');
+  if (name === 'default') {
+    if (link) link.parentNode.removeChild(link);
+    try { delete localStorage.ttTheme; } catch(e) {}
+  } else {
+    if (!link) {
+      link = document.createElement('link');
+      link.id = 'theme-css';
+      link.rel = 'stylesheet';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    var href = 'css/themes/' + name + '.css?v=' + THEME_CSS_VERSION;
+    if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+    try { localStorage.ttTheme = name; } catch(e) {}
+  }
+
+  if (document.body) {
+    var cls = document.body.className.replace(/\btheme-[a-z0-9-]+/g, '').replace(/\s+/g, ' ');
+    document.body.className = (cls + ' theme-' + name).replace(/^\s+|\s+$/g, '');
+  }
+}
 
 analyze = {};
 treeView = {};
@@ -140,6 +179,11 @@ var editFields = {
       label : "Default task sort direction",
       type : "select",
       options :{"asc":"Ascending", "desc":"Descending"}
+    },
+    theme : {
+      label : "Theme",
+      type : "select",
+      options : availableThemes
     }
   },
   task : {
@@ -597,6 +641,10 @@ function ttInitCore(){
       }
     }
 
+   // Sync the theme link + body class with the saved setting (the inline head
+   // script only handles the pre-paint stylesheet, not the body class)
+   applyTheme(getSetting('theme'));
+
    var forms = document.getElementsByTagName('form');
    for (var fi = 0; fi < forms.length; fi++) {
      forms[fi].addEventListener('keypress', function(e) {
@@ -870,7 +918,7 @@ function showAuthModal(mode) {
   mode = mode || 'login';
   var html = '<div id="auth-modal">';
   html += '<h3 id="auth-title">' + (mode === 'login' ? 'Login' : 'Create Account') + '</h3>';
-  html += '<div id="auth-error" style="color: red; margin-bottom: 10px; display: none;"></div>';
+  html += '<div id="auth-error" class="modal-error" style="display: none;"></div>';
   html += '<form id="auth-form" onsubmit="return false;">';
   html += '<input type="text" id="auth-username" placeholder="Username" autocomplete="username" required />';
   html += '<input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required />';
@@ -1592,7 +1640,7 @@ function shareNode(nodeId) {
 function showShareModal(nodeName) {
   var html = '<div id="share-modal">';
   html += '<h3>Share “' + escapeHtml(nodeName) + '”</h3>';
-  html += '<div id="share-modal-error" style="color: red; margin-bottom: 10px; display: none;"></div>';
+  html += '<div id="share-modal-error" class="modal-error" style="display: none;"></div>';
   html += '<input type="text" id="share-link-input" readonly placeholder="Creating link…" onclick="this.select()" />';
   html += '<div style="margin-top: 12px;">';
   html += '<a class="button" id="share-copy-btn" style="display:none" onclick="copyShareLink()">Copy Link</a>';
@@ -2389,6 +2437,18 @@ treeView._doUpdate = function() {
   }
 };
 
+// Top-level ancestor of a node (the node itself if it is top-level).
+// Used to give every row its project color via the --node-color CSS variable.
+function getRootAncestorId(nodeId) {
+  var node = getNode(nodeId);
+  if (!node) return nodeId;
+  var guard = 0;
+  while (node.parentId && getNode(node.parentId) && guard++ < 100) {
+    node = getNode(node.parentId);
+  }
+  return node.id;
+}
+
 treeView.renderNode = function(container, nodeId, depth) {
   var node = getNode(nodeId);
   if (!node) return;
@@ -2422,6 +2482,8 @@ treeView.renderNode = function(container, nodeId, depth) {
   row.className = 'tree-row' + headingClass + (isCompleted ? ' completed' : '') + (isProvisional ? ' tree-row-provisional' : '');
   row.setAttribute('data-node-id', nodeId);
   row.setAttribute('data-depth', depth);
+  // Project color hook: themes may use var(--node-color); the default theme ignores it
+  row.style.setProperty('--node-color', analyze.getNodeColor(getRootAncestorId(nodeId)));
 
   // Double-click to drill into node view
   if (!isProvisional) {
@@ -3314,7 +3376,7 @@ function showNodeInSession() {
   var html = '<i id="session-collapse-btn" class="fa fa-compress" title="Collapse timer" onclick="toggleSessionCollapse()"></i>' +
   '<div class="centered-box">' +
     '<div id="current-info" onclick="if(isSessionCollapsed())expandSessionTimer()">' + pathStr + '</div>' +
-    '<div id="current_duration"><span style="color:#dddddd">00:00:00</span></div>' +
+    '<div id="current_duration"><span class="duration-idle">00:00:00</span></div>' +
     estimateHtml +
     '<div id="session-buttons">' +
       '<a class="button session-end-btn" onclick="endNodeSession(false)">End&nbsp;Session</a>' +
@@ -5145,6 +5207,8 @@ settingsView.save = function(){
   dbg("Settings after save",ttData.settings);
   ttSave();
 
+  applyTheme(getSetting('theme'));
+
   if (getSetting("auto_synch") == "yes" && isLoggedIn()) {
     startAutoSync();
   } else {
@@ -5182,7 +5246,37 @@ todayView.show = function(){
 
   todayFolderAc.reset();
 
+  var dateEl = gebi('today-date');
+  if (dateEl) dateEl.textContent = moment().format('dddd, MMMM D');
+
   todayView.update();
+};
+
+// --- Collapsible sections (fold up e.g. Morning once that phase is done) ---
+// Collapsed state is per-device UI state, kept in localStorage (not synced).
+
+todayView.getCollapsedSections = function(){
+  try {
+    return JSON.parse(localStorage.todayCollapsedSections || '{}');
+  } catch(e) {
+    return {};
+  }
+};
+
+todayView.toggleSection = function(name){
+  var map = todayView.getCollapsedSections();
+  map[name] = !map[name];
+  localStorage.todayCollapsedSections = JSON.stringify(map);
+  todayView.applySectionCollapse();
+};
+
+todayView.applySectionCollapse = function(){
+  var map = todayView.getCollapsedSections();
+  var names = ['morning', 'starred', 'evening'];
+  for (var i = 0; i < names.length; i++) {
+    var sec = gebi('today-' + names[i] + '-section');
+    if (sec) sec.classList.toggle('collapsed', !!map[names[i]]);
+  }
 };
 
 todayView.hide = function(){
@@ -5258,6 +5352,8 @@ todayView.createTaskElement = function(task){
   var taskDiv = document.createElement("div");
   taskDiv.className = "today-task-item" + (task.status === "completed" ? " today-task-completed" : "");
   taskDiv.setAttribute("data-task-id", task.id);
+  // Project color hook: themes may use var(--node-color); the default theme ignores it
+  taskDiv.style.setProperty('--node-color', analyze.getNodeColor(getRootAncestorId(task.id)));
 
   // Checkbox for completion
   var checkedAttr = (task.status == "completed") ? "checked" : "";
@@ -5277,8 +5373,8 @@ todayView.createTaskElement = function(task){
   // Play button (clock indicator when this task's session is running)
   var isTracking = current_session && current_node && current_node.id === task.id;
   var playIcon = isTracking
-    ? "<i onclick=\"treeView.startSession('" + task.id + "')\" title='Session in progress' style='cursor:pointer; color:#d9534f;' class='fa fa-clock-o fa-lg'></i>"
-    : "<i onclick=\"treeView.startSession('" + task.id + "')\" style='cursor:pointer; color:#77aa88;' class='fa fa-play-circle fa-lg'></i>";
+    ? "<i onclick=\"treeView.startSession('" + task.id + "')\" title='Session in progress' class='fa fa-clock-o fa-lg today-play tracking'></i>"
+    : "<i onclick=\"treeView.startSession('" + task.id + "')\" class='fa fa-play-circle fa-lg today-play'></i>";
 
   // Edit handler
   var editHandler = "treeView.showEditForm('" + task.id + "')";
@@ -5404,6 +5500,8 @@ todayView.refresh = function(){
                    todayView.starredTasks.length +
                    todayView.eveningTasks.length;
   noTasksMsg.style.display = (totalTasks === 0) ? "block" : "none";
+
+  todayView.applySectionCollapse();
 };
 
 // --- Starred section ordering ---

@@ -6,15 +6,28 @@
 
     <!-- link rel="stylesheet" href="css/timetracker.css" type="text/css" -->
     <!-- ?v= busts the host's 30-day asset cache; bump it when this file's assets change -->
-    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260923b" type="text/css">
+    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260924a" type="text/css">
     <link rel="stylesheet" href="css/font-awesome.min.css" type="text/css">
     <link rel="stylesheet" href="css/pikaday.css">
+    <!-- Theme stylesheet: applied pre-paint from the localStorage.ttTheme mirror
+         to avoid a flash of the default theme. applyTheme() in timetracker.js
+         owns this link and the mirror from then on. -->
+    <script>
+      (function(){
+        try {
+          var t = localStorage.ttTheme;
+          if (t && /^[a-z0-9-]+$/.test(t)) {
+            document.write('<link rel="stylesheet" id="theme-css" href="css/themes/' + t + '.css?v=20260924a">');
+          }
+        } catch(e) {}
+      })();
+    </script>
 
     <script type="text/javascript" src="js/moment.min.js"></script>
     <script type="text/javascript" src="js/pikaday.js"></script>
     <script type="text/javascript" src="js/Chart.min.js"></script>
     <script type="text/javascript" src="js/plugins.conf.js"></script>
-    <script type="text/javascript" src="js/timetracker.js?v=20260923g"></script>
+    <script type="text/javascript" src="js/timetracker.js?v=20260924a"></script>
     <script type="text/javascript" src="js/tauri-bridge.js"></script>
     <script type="text/javascript" src="js/aida-chat.js"></script>
 
@@ -41,15 +54,15 @@
 
     <div id="container">
       <div id="header">
-        <h1 style="float: left;">taakl</h1>
+        <h1>taakl</h1>
         <div id="view-links">
         <a href="javascript:void(0)" onClick="synchToServer()" class="view-switch icon-only" id="synch-button" title="Synch"><i class="fa fa-refresh fa-lg" id="synch-icon"></i></a>
 
         <a href="javascript:void(0)" class="view-switch icon-only" id="settings-button" title="Settings" onClick="setView('settingsView')"><i class="fa fa-wrench fa-lg"></i></a>
 
-        <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i> <span>Review</span></a>
-
         <a href="javascript:void(0)" class="view-switch" id="assistant-button" title="Assistant" onClick="setView('assistantView')"><i class="fa fa-comments fa-lg"></i> <span>Assistant</span></a>
+
+        <a href="#void" class="view-switch" onClick="setView('analyze')"><i class="fa fa-bar-chart fa-lg"></i> <span>Review</span></a>
 
         <a href="#void" class="view-switch" onClick="setView('todayView')"><i class="fa fa-clock-o fa-lg"></i> <span>Do</span></a>
 
@@ -143,7 +156,7 @@
 
       <!-- Today View -->
       <div id="todayView-view" class="view-container" style="display: none">
-        <h3>Today</h3>
+        <h3>Today <span id="today-date"></span></h3>
 
         <div id="today-new-task-form">
           <form method="post" id="today-task-form" action="">
@@ -158,8 +171,9 @@
         </div>
 
         <div id="today-morning-section" class="today-section">
-          <div class="today-section-header">
+          <div class="today-section-header" onclick="todayView.toggleSection('morning')">
             <i class="fa fa-sun-o"></i> Morning
+            <i class="fa fa-chevron-down today-section-caret"></i>
             <span id="today-morning-totals" class="today-section-totals"></span>
           </div>
           <div class="today-section-tasks" id="today-morning-tasks">
@@ -168,8 +182,9 @@
         </div>
 
         <div id="today-starred-section" class="today-section">
-          <div class="today-section-header">
+          <div class="today-section-header" onclick="todayView.toggleSection('starred')">
             <i class="fa fa-star"></i> Starred
+            <i class="fa fa-chevron-down today-section-caret"></i>
             <span id="today-starred-totals" class="today-section-totals"></span>
           </div>
           <div class="today-section-tasks" id="today-starred-tasks">
@@ -178,8 +193,9 @@
         </div>
 
         <div id="today-evening-section" class="today-section">
-          <div class="today-section-header">
+          <div class="today-section-header" onclick="todayView.toggleSection('evening')">
             <i class="fa fa-moon-o"></i> Evening
+            <i class="fa fa-chevron-down today-section-caret"></i>
             <span id="today-evening-totals" class="today-section-totals"></span>
           </div>
           <div class="today-section-tasks" id="today-evening-tasks">
