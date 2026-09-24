@@ -3338,3 +3338,9 @@ color: var(--ink);
   display: inline-block;
   vertical-align: -3px;
 }
+
+/* Shared view headings (Plan / Today / Review) */
+.view-title{
+  margin-bottom: 20px;
+  color: var(--ink-mid);
+}

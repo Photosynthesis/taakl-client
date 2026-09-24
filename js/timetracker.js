@@ -49,7 +49,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924b';
+var THEME_CSS_VERSION = '20260924c';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -5393,7 +5393,7 @@ todayView.createTaskElement = function(task){
   taskDiv.innerHTML =
     "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
       "<div class='today-task-main'>" +
-        checkCompleted + " " + starIcon + " " + urgentIcon + " " + escapeHtml(task.truncateName) +
+        checkCompleted + " " + starIcon + " " + urgentIcon + " <span class='task-title'>" + escapeHtml(task.truncateName) + "</span>" +
         "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + (task.metaEstimate || '') + "</span>" +
       "</div>" +
       "<div class='today-task-actions'>" + playIcon + "</div>" +
