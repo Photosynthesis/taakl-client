@@ -50,7 +50,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924g';
+var THEME_CSS_VERSION = '20260924h';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -790,7 +790,30 @@ function applySessionLayout(){
       setTimeout(fitDurationText, 10);
     }
   }
+
+  // Offset the content by the bar's real height (the title can wrap on
+  // mobile), falling back to the stylesheet's fixed padding until measured
+  var container = gebi('container');
+  if(container){
+    if(collapsed){
+      setTimeout(function(){
+        var o = gebi('active-session');
+        var c = gebi('container');
+        if(o && c && o.classList.contains('collapsed')){
+          c.style.paddingTop = (o.offsetHeight + 18) + 'px';
+        }
+      }, 0);
+    }else{
+      container.style.paddingTop = '';
+    }
+  }
 }
+
+// Re-measure the collapsed bar when the viewport changes (title wrap changes)
+window.addEventListener('resize', function(){
+  var o = gebi('active-session');
+  if(o && o.classList.contains('collapsed')) applySessionLayout();
+});
 
 
 function fitDurationText(){
@@ -3483,6 +3506,7 @@ function endNodeSession(markComplete) {
   gebi('active-session').style.display = 'none';
   gebi('active-session').classList.remove('collapsed');
   document.body.classList.remove('session-collapsed');
+  gebi('container').style.paddingTop = '';
   document.title = 'Taakl';
 
   var edit_button = '<form style="display:inline"><a class="button" onClick="showGeneralEditForm(\'session\',\'' + pastSessionId + '\')">Edit session</a></form>';
@@ -3510,6 +3534,7 @@ function abortNodeSession(message) {
   overlay.style.display = 'none';
   overlay.classList.remove('collapsed');
   document.body.classList.remove('session-collapsed');
+  gebi('container').style.paddingTop = '';
   document.title = 'Taakl';
 
   if (message) setFeedback(message, 'notice');

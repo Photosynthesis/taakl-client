@@ -700,6 +700,35 @@ color: var(--ink);
 
 @media all and ( max-width: 650px ) {
 
+  /* Collapsed session bar: two rows — the title wraps full-width (clamped),
+     timer + End Session sit below. applySessionLayout() measures the bar and
+     offsets the content, so the wrapped height never overlaps the page. */
+  #active-session.collapsed .centered-box{
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    min-height: 0;
+    padding: 9px 42px 9px 14px;
+  }
+  #active-session.collapsed #current-info{
+    flex: 1 1 100%;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    text-overflow: clip;
+  }
+  #active-session.collapsed #current_duration{
+    font-size: 20px;
+  }
+  #active-session.collapsed #session-buttons{
+    margin-left: auto;
+  }
+  #active-session.collapsed .session-end-btn{
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
   #header{
     padding: 14px 3% 2px;
   }

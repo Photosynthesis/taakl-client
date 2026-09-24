@@ -1147,3 +1147,9 @@ body.theme-studio #auth-modal input:focus{
   }
   .today-task-main .task-meta{ white-space: normal; flex: 0 1 auto; }
 }
+
+/* Mobile collapsed session bar: compact timer/button so the title keeps room */
+@media (max-width: 650px){
+  #active-session.collapsed #current_duration{ font-size: 20px; }
+  #active-session.collapsed .session-end-btn{ padding: 6px 10px; font-size: 12px; }
+}
