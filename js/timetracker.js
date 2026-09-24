@@ -45,11 +45,12 @@ var defaultSettings = {
 // stylesheet. "default" means no extra stylesheet.
 var availableThemes = {
   "default" : "Default",
-  "studio" : "Studio"
+  "studio" : "Studio",
+  "ledger" : "Analog Ledger"
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924e';
+var THEME_CSS_VERSION = '20260924f';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
