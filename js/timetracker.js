@@ -49,7 +49,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924d';
+var THEME_CSS_VERSION = '20260924e';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -5334,8 +5334,8 @@ todayView.filter = function(){
 
     // Calculate time and estimate (separators get a class so themes can restyle them)
     task.time = calculateNodeTime(task.id);
-    task.metaPrettyTime = (task.time > 0) ? '<span class="meta-sep"> | </span>' + prettyTime(task.time) : '';
-    task.metaEstimate = (task.estimate > 0) ? '<span class="meta-sep"> | </span>est ' + prettyTime(task.estimate) : '';
+    task.metaPrettyTime = (task.time > 0) ? '<span class="meta-sep"> &middot; </span>' + prettyTimeShort(task.time) : '';
+    task.metaEstimate = (task.estimate > 0) ? '<span class="meta-sep"> &middot; </span>est ' + prettyTimeShort(task.estimate) : '';
 
     // Check for morning tasks (#daily + #morning in name)
     if (taskHasTags(task, ['daily', 'morning'])) {
@@ -6840,6 +6840,16 @@ function ttSave(){
 
 /* ####################### TIME & DATE FUNCTIONS ########################## */
 
+
+// Compact duration for row metadata: "2h 5m", "45m", "1h"
+function prettyTimeShort(s){
+  var hours = parseInt(s / 3600, 10);
+  var minutes = parseInt(s / 60, 10) % 60;
+  var out = '';
+  if (hours) out += hours + 'h';
+  if (minutes) out += (out ? ' ' : '') + minutes + 'm';
+  return out || '0m';
+}
 
 function prettyTime(s){
     var hours = parseInt(s/3600) % 24;

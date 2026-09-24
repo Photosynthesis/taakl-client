@@ -829,7 +829,7 @@ input.button-end-field::placeholder{ color: var(--ink-ghost); }
   letter-spacing: 0.01em;
   padding: 4px 9px;
   border-radius: 99px;
-  margin-right: 3px;
+  margin-right: 9px;
   vertical-align: 1px;
   background: rgba(127,139,127,0.16);
   background: color-mix(in srgb, var(--node-color, #7f8b7f) 15%, #ffffff);
