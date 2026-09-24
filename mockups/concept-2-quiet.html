@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taakl — Concept 2: Quiet Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Concept 2 — Quiet Instrument
+   Near-monochrome. Typography is the design.
+   ============================================================ */
+:root {
+  --ground:      #fdfdfc;
+  --ink:         #1a1a1a;
+  --ink-2:       #6b6b6b;
+  --ink-3:       #a3a3a3;
+  --ink-4:       #c6c6c2;
+  --hairline:    #ececea;
+  --accent:      #2e7d54;   /* the one green — actions, sync, active states */
+  --accent-soft: #eaf2ed;
+  --signal:      #d4552e;   /* reserved exclusively for the live timer */
+  --ochre:       #b0913f;   /* stars */
+  --ease: 150ms cubic-bezier(.4, 0, .2, 1);
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --sans: "Instrument Sans", system-ui, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+body {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--ground);
+  font-feature-settings: "ss01";
+}
+
+button { font: inherit; background: none; border: none; cursor: pointer; color: inherit; }
+input  { font: inherit; }
+
+:focus-visible {
+  outline: 1px solid rgba(46, 125, 84, .55);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* --- micro-label: the 11px letter-spaced small-cap voice --- */
+.microlabel {
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 48px;
+}
+@media (max-width: 900px) { .shell { padding: 0 24px; } }
+
+/* ============ Header ============ */
+header {
+  border-bottom: 1px solid var(--hairline);
+  background: var(--ground);
+}
+.header-inner {
+  display: flex;
+  align-items: baseline;
+  gap: 42px;
+  height: 64px;
+  align-items: center;
+}
+.wordmark {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  user-select: none;
+}
+.wordmark::after {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+
+nav { display: flex; gap: 30px; flex: 1; }
+.nav-tab {
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  color: var(--ink-3);
+  padding: 4px 0;
+  position: relative;
+  transition: color var(--ease);
+}
+.nav-tab:hover { color: var(--ink-2); }
+.nav-tab.active { color: var(--ink); }
+.nav-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -3px;
+  height: 2px;
+  background: var(--accent);
+}
+.nav-tab.inert { cursor: default; }
+
+.header-tools { display: flex; gap: 6px; align-items: center; }
+.icon-btn {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  color: var(--ink-3);
+  transition: color var(--ease), background var(--ease);
+}
+.icon-btn:hover { color: var(--ink-2); background: #f4f4f2; }
+.icon-btn.sync { color: var(--accent); }
+.icon-btn.sync:hover { background: var(--accent-soft); }
+.icon-btn svg { display: block; }
+
+/* ============ Now-tracking bar ============ */
+.tracking-bar {
+  border-bottom: 1px solid var(--hairline);
+}
+.tracking-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 46px;
+}
+.pulse {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--signal);
+  flex: none;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+.tracking-label { font-size: 11px; font-weight: 550; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--ink-4); flex: none; }
+.tracking-task { font-weight: 550; font-size: 13.5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.tracking-task .tag { font-weight: 400; }
+.tracking-path { font-size: 12.5px; color: var(--ink-3); flex: none; margin-left: 8px; }
+.tracking-path::before { content: "· "; color: var(--ink-4); margin-right: 3px; }
+.tracking-spacer { flex: 1; }
+.tracking-elapsed {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--signal);
+  flex: none;
+}
+.stop-btn {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 550; letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  padding: 5px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  transition: color var(--ease), border-color var(--ease), background var(--ease);
+  flex: none;
+}
+.stop-btn .square {
+  width: 8px; height: 8px; background: currentColor; border-radius: 1px;
+}
+.stop-btn:hover { color: var(--ink); border-color: var(--ink-4); background: #fafaf8; }
+
+/* ============ Views ============ */
+main { padding: 30px 0 60px; }
+.view { display: none; animation: rise 240ms cubic-bezier(.25, .6, .3, 1); }
+.view.visible { display: block; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ============ Plan: toolbar ============ */
+.plan-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding-bottom: 22px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+.filter-input {
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  padding: 5px 1px;
+  width: 240px;
+  font-size: 14px;
+  color: var(--ink);
+  transition: border-color var(--ease);
+  border-radius: 0;
+}
+.filter-input::placeholder { color: var(--ink-4); }
+.filter-input:hover  { border-color: var(--ink-4); }
+.filter-input:focus  { outline: none; border-color: var(--accent); }
+
+.toggle {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--ink-3);
+  transition: color var(--ease);
+}
+.toggle:hover { color: var(--ink-2); }
+.toggle .dot {
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--ink-4);
+  border-radius: 50%;
+  position: relative;
+  transition: border-color var(--ease);
+}
+.toggle .dot::after {
+  content: "";
+  position: absolute; inset: 2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform var(--ease);
+}
+.toggle.on { color: var(--ink); }
+.toggle.on .dot { border-color: var(--accent); }
+.toggle.on .dot::after { transform: scale(1); }
+
+/* ============ Plan: tree ============ */
+/* Row grid — shared right-aligned time columns down the whole page */
+.trow {
+  display: grid;
+  grid-template-columns: 18px 18px 1fr 128px 96px 20px 26px;
+  column-gap: 10px;
+  align-items: center;
+  min-height: 37px;
+  padding: 0 6px 0 2px;
+  border-radius: 6px;
+  transition: background var(--ease);
+}
+.trow:hover { background: #f7f7f5; }
+@media (max-width: 900px) {
+  .trow { grid-template-columns: 18px 18px 1fr 96px 82px 18px 24px; column-gap: 7px; }
+}
+
+.disc {
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  color: var(--ink-4);
+  transition: color var(--ease);
+}
+.trow:hover .disc { color: var(--ink-3); }
+.disc svg { transition: transform var(--ease); }
+.disc.open svg { transform: rotate(90deg); }
+
+.folder-name {
+  grid-column: 2 / 4;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+.trow.folder { min-height: 42px; }
+
+.task-name {
+  font-size: 14px;
+  font-weight: 450;
+  letter-spacing: -0.006em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag { color: var(--ink-3); font-weight: 400; }
+
+.t-logged, .t-est {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+.t-logged { color: var(--ink-2); }
+.t-est    { color: var(--ink-3); }
+.t-est .est-k { color: var(--ink-4); }
+
+.star { display: grid; place-items: center; color: var(--ochre); }
+.star svg { display: block; }
+
+/* checkbox: 15px square, check draws itself in */
+.cb {
+  width: 15px; height: 15px;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--ink-4);
+  border-radius: 4px;
+  background: transparent;
+  transition: border-color var(--ease), background var(--ease);
+  padding: 0;
+  justify-self: center;
+}
+.cb:hover { border-color: var(--ink-3); }
+.cb svg { display: block; }
+.cb path {
+  stroke: #fff;
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  transition: stroke-dashoffset 220ms cubic-bezier(.4, 0, .2, 1) 40ms;
+}
+.done > .cb, .drow.done .cb {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.done > .cb path, .drow.done .cb path { stroke-dashoffset: 0; }
+
+/* play affordance — invisible until hover */
+.play {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity var(--ease), background var(--ease);
+}
+.trow:hover .play, .drow:hover .play { opacity: 1; }
+.play:hover { background: var(--accent-soft); }
+.play:focus-visible { opacity: 1; }
+
+.indent-1 { margin-left: 28px; }
+
+/* ============ Do view ============ */
+.today-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.today-head h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+.today-date { font-size: 13px; color: var(--ink-3); }
+
+.add-task {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  padding: 9px 1px;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 34px;
+  transition: border-color var(--ease);
+  border-radius: 0;
+}
+.add-task::placeholder { color: var(--ink-4); }
+.add-task:hover { border-color: var(--ink-4); }
+.add-task:focus { outline: none; border-color: var(--accent); }
+
+.dsection { margin-bottom: 36px; }
+.dsection-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--hairline);
+}
+.dsection-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  display: flex; align-items: center; gap: 8px;
+}
+.dsection-title .star { color: var(--ochre); }
+.dsection-totals {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.dsection-totals .sep { color: var(--ink-4); padding: 0 5px; }
+
+.drow {
+  display: grid;
+  grid-template-columns: 18px 1fr auto 26px;
+  column-gap: 12px;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 6px 0 2px;
+  border-radius: 6px;
+  transition: background var(--ease);
+  position: relative;
+}
+.drow:hover { background: #f7f7f5; }
+
+.drow .task-name { transition: color var(--ease); }
+.drow.done .task-name {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--ink-4);
+}
+.drow.done .meta { color: var(--ink-4); }
+.drow.done .meta .m-path { color: var(--ink-4); }
+
+.meta {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  text-align: right;
+  white-space: nowrap;
+  transition: color var(--ease);
+}
+.meta .m-path { font-family: var(--sans); font-weight: 450; font-size: 12px; color: var(--ink-3); }
+.meta .sep { color: var(--ink-4); padding: 0 5px; }
+@media (max-width: 900px) { .meta .m-path { display: none; } }
+
+/* the running row — unmistakable, and the only other place the signal color lives */
+.drow.active { background: #fbf6f3; }
+.drow.active:hover { background: #f9f1ec; }
+.drow.active::before {
+  content: "";
+  position: absolute;
+  left: -14px; top: 6px; bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--signal);
+}
+.drow.active .task-name { font-weight: 600; }
+.row-elapsed {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--signal);
+  margin-left: 12px;
+}
+.row-elapsed .pulse { width: 5px; height: 5px; }
+.drow.active .stop-mini {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 6px;
+  color: var(--ink-2);
+  transition: background var(--ease), color var(--ease);
+}
+.drow.active .stop-mini:hover { background: #f2e4dc; color: var(--ink); }
+.drow.active .stop-mini .square {
+  width: 9px; height: 9px; background: currentColor; border-radius: 1.5px;
+}
+
+/* ============ Footer ============ */
+footer {
+  border-top: 1px solid var(--hairline);
+  padding: 22px 0 34px;
+}
+.footer-note {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="shell header-inner">
+    <div class="wordmark">taakl</div>
+    <nav>
+      <button class="nav-tab active" id="tabPlan" onclick="showView('plan')">Plan</button>
+      <button class="nav-tab" id="tabDo" onclick="showView('do')">Do</button>
+      <button class="nav-tab inert">Assistant</button>
+      <button class="nav-tab inert">Review</button>
+    </nav>
+    <div class="header-tools">
+      <button class="icon-btn" title="Settings" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13.6 4.6a3.4 3.4 0 0 1-4.5 4.2l-4.8 4.8a1.35 1.35 0 0 1-1.9-1.9l4.8-4.8a3.4 3.4 0 0 1 4.2-4.5L9.2 4.6l.4 1.8 1.8.4 2.2-2.2z"/>
+        </svg>
+      </button>
+      <button class="icon-btn sync" title="Synced just now" aria-label="Sync">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13.5 8a5.5 5.5 0 0 1-9.6 3.7M2.5 8a5.5 5.5 0 0 1 9.6-3.7"/>
+          <path d="M13.7 1.8v3h-3M2.3 14.2v-3h3"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- persistent now-tracking bar -->
+<div class="tracking-bar">
+  <div class="shell tracking-inner">
+    <span class="pulse"></span>
+    <span class="tracking-label">Tracking</span>
+    <span class="tracking-task">Writing <span class="tag">#morning #daily</span><span class="tracking-path">Practice</span></span>
+    <span class="tracking-spacer"></span>
+    <span class="tracking-elapsed js-elapsed">25:12</span>
+    <button class="stop-btn" title="Stop tracking"><span class="square"></span>Stop</button>
+  </div>
+</div>
+
+<main class="shell">
+
+  <!-- ==================== PLAN ==================== -->
+  <section class="view visible" id="viewPlan">
+
+    <div class="plan-toolbar">
+      <input class="filter-input" type="text" placeholder="Filter&hellip;">
+      <button class="toggle on" onclick="this.classList.toggle('on')"><span class="dot"></span>Hide done</button>
+      <button class="toggle" onclick="this.classList.toggle('on')"><span class="dot"></span>Recent</button>
+    </div>
+
+    <!-- collapsed top-level folders -->
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Practice</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Churches</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+
+    <!-- expanded: Home -->
+    <div class="trow folder">
+      <button class="disc open" aria-label="Collapse"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Home</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+
+    <div class="indent-1">
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Manual house/flat search</span>
+        <span class="t-logged"></span><span class="t-est"></span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Set up bot/email property search</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 40 mins</span>
+        <span class="star"><svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0.6 7.6 4l3.7.4-2.8 2.5.8 3.7L6 8.7l-3.3 1.9.8-3.7L.7 4.4 4.4 4z"/></svg></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Start automated land search</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 40 mins</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow folder">
+        <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+        <span class="folder-name">GIS land search place base</span>
+        <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+      </div>
+      <div class="trow folder">
+        <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+        <span class="folder-name">Berlin place research</span>
+        <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Look at Italy itinerary options</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 20 mins</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Think about coming travel plans and best approach now</span>
+        <span class="t-logged">23 hrs 15 mins</span>
+        <span class="t-est"><span class="est-k">est</span> 20 mins</span>
+        <span class="star"><svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0.6 7.6 4l3.7.4-2.8 2.5.8 3.7L6 8.7l-3.3 1.9.8-3.7L.7 4.4 4.4 4z"/></svg></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Message Gustav re meeting next week</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 10 mins</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Message Marta re mellows visit</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 5 mins</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Message Zjofi re not Lowenherz</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 15 mins</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="trow task">
+        <span></span>
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Housing sweep and messages</span>
+        <span class="t-logged"></span><span class="t-est"><span class="est-k">est</span> 1 hr</span><span></span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+    </div><!-- /indent-1 -->
+
+    <!-- remaining collapsed folders -->
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Admin</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Maintenance</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Side projects</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Money</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+    <div class="trow folder">
+      <button class="disc" aria-label="Expand"><svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><path d="M1.5 0.5 6.5 4 1.5 7.5z"/></svg></button>
+      <span class="folder-name">Cook and eat</span>
+      <span class="t-logged"></span><span class="t-est"></span><span></span><span></span>
+    </div>
+
+  </section>
+
+  <!-- ==================== DO ==================== -->
+  <section class="view" id="viewDo">
+
+    <div class="today-head">
+      <h1>Today</h1>
+      <span class="today-date">Tuesday 23 September 2026</span>
+    </div>
+
+    <input class="add-task" type="text" placeholder="Add new task (/ to choose folder)">
+
+    <!-- Morning -->
+    <div class="dsection">
+      <div class="dsection-head">
+        <span class="dsection-title">Morning</span>
+        <span class="dsection-totals">est 30 mins<span class="sep">|</span>logged 6 hrs 3 mins</span>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Meditate <span class="tag">#morning #daily</span> (20m)</span>
+        <span class="meta"><span class="m-path">Practice</span><span class="sep">|</span>1 hr 2 mins</span>
+        <span></span>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Sun salutations/yoga/movement <span class="tag">#daily #morning</span> (15m)</span>
+        <span class="meta"><span class="m-path">Practice</span><span class="sep">|</span>3 hrs 50 mins</span>
+        <span></span>
+      </div>
+
+      <!-- ACTIVE row -->
+      <div class="drow active">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Writing <span class="tag">#morning #daily</span><span class="row-elapsed"><span class="pulse"></span><span class="js-elapsed">25:12</span></span></span>
+        <span class="meta"><span class="m-path">Practice</span><span class="sep">|</span>10 mins<span class="sep">|</span>est 30 mins</span>
+        <button class="stop-mini" title="Stop tracking"><span class="square"></span></button>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Exercise for at least 20 minutes <span class="tag">#daily #morning</span></span>
+        <span class="meta"><span class="m-path">Practice</span><span class="sep">|</span>29 mins<span class="sep">|</span>est 20 mins</span>
+        <span></span>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Make plan for the day <span class="tag">#morning #daily</span></span>
+        <span class="meta"><span class="m-path">Practice</span><span class="sep">|</span>30 mins<span class="sep">|</span>est 10 mins</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- Starred -->
+    <div class="dsection">
+      <div class="dsection-head">
+        <span class="dsection-title"><span class="star"><svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0.6 7.6 4l3.7.4-2.8 2.5.8 3.7L6 8.7l-3.3 1.9.8-3.7L.7 4.4 4.4 4z"/></svg></span>Starred</span>
+        <span class="dsection-totals">est 2 hrs 15 mins<span class="sep">|</span>logged 8 hrs 55 mins</span>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Have shower</span>
+        <span class="meta"><span class="m-path">Maintenance</span><span class="sep">|</span>12 mins</span>
+        <span></span>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Order food</span>
+        <span class="meta"><span class="m-path">Maintenance</span><span class="sep">|</span>12 mins</span>
+        <span></span>
+      </div>
+
+      <div class="drow">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Get bedding from car</span>
+        <span class="meta"><span class="m-path">Home</span><span class="sep">|</span>est 10 mins</span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="drow">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Edit and send funding pitch to Jan or other (3 pomos)</span>
+        <span class="meta"><span class="m-path">Churches</span><span class="sep">|</span>est 25 mins</span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="drow done">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Message council re Valeria invite</span>
+        <span class="meta"><span class="m-path">Churches &gt; Berlin</span><span class="sep">|</span>2 mins<span class="sep">|</span>est 5 mins</span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- Evening -->
+    <div class="dsection">
+      <div class="dsection-head">
+        <span class="dsection-title">Evening</span>
+        <span class="dsection-totals">est 25 mins</span>
+      </div>
+
+      <div class="drow">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Review day and plan tomorrow <span class="tag">#evening #daily</span></span>
+        <span class="meta">est 15 mins</span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+
+      <div class="drow">
+        <button class="cb" aria-label="Mark done"><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4.2 3.8 6.8 9 1.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span class="task-name">Read fiction <span class="tag">#evening</span></span>
+        <span class="meta">est 10 mins</span>
+        <button class="play" title="Start tracking"><svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor"><path d="M1 0.8 9.4 5.5 1 10.2z"/></svg></button>
+      </div>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  <div class="shell">
+    <span class="footer-note">Concept 2 &mdash; Quiet Instrument</span>
+  </div>
+</footer>
+
+<script>
+// ---- Tab switching ----------------------------------------------------
+function showView(name) {
+  var plan = name === 'plan';
+  document.getElementById('viewPlan').classList.toggle('visible', plan);
+  document.getElementById('viewDo').classList.toggle('visible', !plan);
+  document.getElementById('tabPlan').classList.toggle('active', plan);
+  document.getElementById('tabDo').classList.toggle('active', !plan);
+}
+
+// ---- Live timer (started at 25:12) ------------------------------------
+var elapsedSeconds = 25 * 60 + 12;
+function formatElapsed(s) {
+  var h = Math.floor(s / 3600),
+      m = Math.floor((s % 3600) / 60),
+      sec = s % 60;
+  var mm = (h > 0 && m < 10 ? '0' : '') + m,
+      ss = (sec < 10 ? '0' : '') + sec;
+  return (h > 0 ? h + ':' : '') + mm + ':' + ss;
+}
+function tick() {
+  elapsedSeconds++;
+  var text = formatElapsed(elapsedSeconds);
+  var els = document.querySelectorAll('.js-elapsed');
+  for (var i = 0; i < els.length; i++) els[i].textContent = text;
+}
+setInterval(tick, 1000);
+
+// ---- Interactive checkboxes (toggle done styling) ---------------------
+var boxes = document.querySelectorAll('.cb');
+for (var i = 0; i < boxes.length; i++) {
+  boxes[i].addEventListener('click', function () {
+    var row = this.parentNode;
+    row.classList.toggle('done');
+  });
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>theme test drive</title>
+<style>body{margin:0;font-family:monospace}#status{padding:6px;background:#222;color:#0f0;font-size:12px}iframe{border:0;width:1180px;height:860px}</style>
+</head>
+<body>
+<div id="status">loading…</div>
+<iframe id="f" src="../index.html"></iframe>
+<script>
+var params = new URLSearchParams(location.search);
+var mode = params.get('mode') || 'today';
+var f = document.getElementById('f');
+var statusEl = document.getElementById('status');
+var errors = [];
+f.onload = function(){
+  var w = f.contentWindow;
+  w.onerror = function(msg){ errors.push(String(msg)); };
+  setTimeout(function(){
+    try {
+      if (mode === 'today' || mode === 'collapse') {
+        w.setView('todayView');
+        // seed via real code paths
+        w.gebi('today-new-task-input').value = 'Morning writing #daily #morning (30m)';
+        w.treeView.saveNewTaskFromToday();
+        w.gebi('today-new-task-input').value = 'Wind down #daily #evening';
+        w.treeView.saveNewTaskFromToday();
+        // star one task
+        var tasks = w.getAllTaskNodes();
+        if (tasks.length) { w.todayView.toggleNodeStar(tasks[0].id); }
+        if (mode === 'collapse') { w.todayView.toggleSection('morning'); }
+      } else if (mode === 'settings') {
+        w.setView('settingsView');
+      } else if (mode === 'plan') {
+        w.setView('taskList');
+        w.gebi('today-new-task-input'); // noop
+      }
+      setTimeout(function(){
+        var nodeColor = '';
+        var row = w.document.querySelector('.tree-row') || w.document.querySelector('.today-task-item');
+        if (row) nodeColor = row.style.getPropertyValue('--node-color');
+        var themeSel = w.document.getElementById('settings-themeinput');
+        statusEl.textContent = 'mode=' + mode +
+          ' | errors=' + (errors.length ? errors.join(';') : 'none') +
+          ' | node-color=' + (nodeColor || 'MISSING') +
+          ' | theme-select=' + (themeSel ? 'present' : 'n/a') +
+          ' | date=' + (w.gebi('today-date') ? w.gebi('today-date').textContent : '?') +
+          ' | bodyclass=' + w.document.body.className;
+      }, 400);
+    } catch(e) {
+      statusEl.textContent = 'DRIVER ERROR: ' + e.message;
+    }
+  }, 600);
+};
+</script>
+</body>
+</html>

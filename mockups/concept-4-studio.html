@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taakl — Concept 4 · Soft Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Albert+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   Concept 4 — "Soft Studio"
+   Calm crafted studio tool. Sage-mist ground, pine-ink text,
+   white cards, muted per-project hues, Bricolage + Albert Sans.
+   ================================================================ */
+:root{
+  --bg:#eef0ea;
+  --bg-deep:#e5e9e0;
+  --ink:#22332c;
+  --ink-soft:rgba(34,51,44,.64);
+  --ink-faint:rgba(34,51,44,.42);
+  --ink-ghost:rgba(34,51,44,.24);
+  --line:rgba(34,51,44,.09);
+  --line-soft:rgba(34,51,44,.06);
+  --card:#ffffff;
+  --star:#c19b2e;
+  /* project palette — muted, harmonious */
+  --terra:#c26d4f;   /* Practice */
+  --ochre:#b3922f;   /* Churches */
+  --slate:#5b7d99;   /* Home */
+  --moss:#7d9464;    /* Admin */
+  --plum:#8d6a89;    /* Maintenance */
+  --teal:#5e8f89;    /* Side projects */
+  --copper:#9a7b5c;  /* Money */
+  --rose:#b57a76;    /* Cook and eat */
+  --neutral:#7f8b7f;
+  --radius:14px;
+  --shadow-card:0 1px 2px rgba(34,51,44,.05), 0 10px 28px -12px rgba(34,51,44,.10);
+  --shadow-lift:0 2px 4px rgba(34,51,44,.06), 0 14px 32px -10px rgba(34,51,44,.14);
+  --font-display:"Bricolage Grotesque", "Albert Sans", sans-serif;
+  --font-ui:"Albert Sans", sans-serif;
+  --font-mono:"Spline Sans Mono", ui-monospace, monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{height:100%}
+body{
+  min-height:100%;
+  background:var(--bg);
+  background-image:
+    radial-gradient(1100px 500px at 85% -8%, rgba(194,109,79,.045), transparent 60%),
+    radial-gradient(900px 600px at -10% 100%, rgba(91,125,153,.05), transparent 55%);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:14px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+/* soft paper grain */
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.30;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.13 0 0 0 0 0.2 0 0 0 0 0.17 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{font:inherit;color:inherit}
+svg{display:block}
+
+/* project hue plumbing */
+.p-practice{--pc:var(--terra)} .p-churches{--pc:var(--ochre)}
+.p-home{--pc:var(--slate)}     .p-admin{--pc:var(--moss)}
+.p-maint{--pc:var(--plum)}     .p-side{--pc:var(--teal)}
+.p-money{--pc:var(--copper)}   .p-cook{--pc:var(--rose)}
+
+/* ---------------------------------------------------------------
+   Layout: fixed sidebar + fluid main
+   --------------------------------------------------------------- */
+.app{display:flex;min-height:100vh}
+.sidebar{
+  width:250px;flex:0 0 250px;
+  position:sticky;top:0;align-self:flex-start;height:100vh;
+  display:flex;flex-direction:column;
+  background:var(--bg-deep);
+  border-right:1px solid var(--line-soft);
+  padding:26px 16px 16px;
+}
+.main{
+  flex:1;min-width:0;
+  padding:34px 44px 28px;
+  display:flex;flex-direction:column;
+}
+.content{width:100%;max-width:880px;margin:0 auto;flex:1}
+
+/* ---------------------------------------------------------------
+   Sidebar
+   --------------------------------------------------------------- */
+.wordmark{
+  font-family:var(--font-display);font-weight:700;font-size:26px;
+  letter-spacing:-.02em;padding:0 10px;margin-bottom:26px;
+}
+.wordmark .tick{color:var(--terra)}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav-item{
+  display:flex;align-items:center;gap:11px;
+  padding:9px 12px;border-radius:10px;
+  font-weight:500;font-size:14.5px;color:var(--ink-soft);
+  transition:background .18s ease, color .18s ease, box-shadow .18s ease;
+  text-align:left;
+}
+.nav-item svg{width:17px;height:17px;flex:0 0 17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav-item:hover{background:rgba(255,255,255,.55);color:var(--ink)}
+.nav-item.active{
+  background:var(--card);color:var(--ink);font-weight:600;
+  box-shadow:0 1px 2px rgba(34,51,44,.06), 0 6px 16px -8px rgba(34,51,44,.14);
+}
+.nav-item.inert{opacity:.62}
+.nav-item:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+
+.legend{margin-top:30px;padding:0 12px}
+.legend-title{
+  font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:11px;
+}
+.legend-item{
+  display:flex;align-items:center;gap:9px;
+  font-size:13px;color:var(--ink-soft);padding:3.5px 0;
+}
+.legend-item .dot{width:8px;height:8px;border-radius:50%;background:var(--pc);flex:0 0 8px;box-shadow:0 0 0 3px color-mix(in oklab, var(--pc) 16%, transparent)}
+
+.side-bottom{margin-top:auto;display:flex;flex-direction:column;gap:12px}
+
+/* now-tracking card — pinned in sidebar, visible in both views */
+.track-card{
+  background:var(--card);border-radius:var(--radius);
+  padding:13px 14px 12px;box-shadow:var(--shadow-card);
+  border:1px solid var(--line-soft);
+  position:relative;overflow:hidden;
+}
+.track-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--terra);border-radius:3px 0 0 3px}
+.track-label{
+  display:flex;align-items:center;gap:7px;
+  font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--terra);margin-bottom:7px;
+}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--terra);animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(194,109,79,.45)}55%{box-shadow:0 0 0 6px rgba(194,109,79,0)}}
+.track-name{font-weight:600;font-size:13.5px;line-height:1.35;margin-bottom:3px}
+.track-path{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-faint);margin-bottom:10px}
+.track-path .dot{width:6px;height:6px;border-radius:50%;background:var(--terra)}
+.track-foot{display:flex;align-items:center;justify-content:space-between}
+.track-time{font-family:var(--font-mono);font-size:21px;font-weight:500;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.stop-btn{
+  width:32px;height:32px;border-radius:10px;
+  background:color-mix(in oklab, var(--terra) 12%, #fff);
+  color:var(--terra);display:grid;place-items:center;
+  transition:background .15s ease, transform .15s ease;
+}
+.stop-btn:hover{background:color-mix(in oklab, var(--terra) 22%, #fff);transform:scale(1.06)}
+.stop-btn svg{width:11px;height:11px;fill:currentColor}
+
+.side-utils{display:flex;gap:2px;padding:0 4px}
+.util-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:7px;
+  padding:8px 6px;border-radius:9px;font-size:12.5px;font-weight:500;
+  color:var(--ink-faint);transition:background .15s ease,color .15s ease;
+}
+.util-btn:hover{background:rgba(255,255,255,.6);color:var(--ink)}
+.util-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------------------------------------------------------------
+   Views + entrance choreography
+   --------------------------------------------------------------- */
+.view{display:none}
+.view.visible{display:block}
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+.anim,.drow{animation:rise .5s cubic-bezier(.2,.7,.25,1) both;animation-delay:calc(var(--i,0)*26ms)}
+@media (prefers-reduced-motion: reduce){.anim,.drow{animation:none}.pulse{animation:none}}
+
+.view-head{display:flex;align-items:baseline;gap:14px;margin-bottom:20px}
+.view-title{font-family:var(--font-display);font-weight:700;font-size:29px;letter-spacing:-.02em}
+.view-date{font-size:13.5px;color:var(--ink-faint)}
+
+/* ---------------------------------------------------------------
+   PLAN — toolbar
+   --------------------------------------------------------------- */
+.toolbar{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.filter-wrap{position:relative;flex:0 1 300px}
+.filter-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;stroke:var(--ink-ghost);fill:none;stroke-width:1.8;stroke-linecap:round}
+.filter-input{
+  width:100%;padding:9px 13px 9px 34px;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;
+  font-size:13.5px;box-shadow:0 1px 2px rgba(34,51,44,.04);
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.filter-input::placeholder{color:var(--ink-ghost)}
+.filter-input:focus{outline:none;border-color:color-mix(in oklab, var(--slate) 55%, transparent);box-shadow:0 0 0 3px color-mix(in oklab, var(--slate) 14%, transparent)}
+
+.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-soft);user-select:none}
+.switch{
+  width:32px;height:19px;border-radius:10px;position:relative;flex:0 0 32px;
+  background:var(--ink-ghost);transition:background .2s ease;
+}
+.switch::after{
+  content:"";position:absolute;top:2.5px;left:2.5px;width:14px;height:14px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(34,51,44,.25);transition:transform .2s cubic-bezier(.3,1.4,.5,1);
+}
+.toggle.on .switch{background:var(--moss)}
+.toggle.on .switch::after{transform:translateX(13px)}
+.toggle.on{color:var(--ink)}
+
+.pill-toggle{
+  padding:7px 15px;border-radius:99px;font-size:13px;font-weight:500;
+  background:var(--card);border:1px solid var(--line);color:var(--ink-soft);
+  transition:all .15s ease;
+}
+.pill-toggle:hover{border-color:var(--ink-ghost);color:var(--ink)}
+.pill-toggle.on{background:var(--ink);border-color:var(--ink);color:#f4f5f1}
+
+/* ---------------------------------------------------------------
+   PLAN — outliner tree card
+   --------------------------------------------------------------- */
+.tree-card{
+  background:var(--card);border-radius:16px;border:1px solid var(--line-soft);
+  box-shadow:var(--shadow-card);padding:10px 8px;
+}
+.trow{
+  display:grid;
+  grid-template-columns:24px 26px minmax(0,1fr) 112px 92px 26px 34px;
+  align-items:center;gap:2px;
+  padding:5px 8px;border-radius:10px;
+  transition:background .13s ease;
+  position:relative;
+}
+.trow:hover{background:color-mix(in oklab, var(--pc, var(--neutral)) 5%, transparent)}
+.trow.lvl1{margin-left:28px}
+.trow.folder{margin-top:2px}
+.trow.folder.top{margin-top:7px}
+.trow.folder.top:first-child{margin-top:0}
+
+.disc{
+  width:22px;height:22px;display:grid;place-items:center;border-radius:6px;
+  color:var(--ink-faint);transition:background .13s ease,color .13s ease;
+}
+.disc:hover{background:rgba(34,51,44,.07);color:var(--ink)}
+.disc svg{width:9px;height:9px;fill:currentColor;transition:transform .18s ease}
+.disc.open svg{transform:rotate(90deg)}
+.leaf-dot{width:3px;height:3px;border-radius:50%;background:var(--ink-ghost);margin:0 auto}
+
+.fdot{width:9px;height:9px;border-radius:50%;background:var(--pc);margin:0 auto;box-shadow:0 0 0 3px color-mix(in oklab, var(--pc) 15%, transparent)}
+.fdot.sub{width:7px;height:7px;background:color-mix(in oklab, var(--pc) 55%, #fff);box-shadow:none}
+
+.fname{font-family:var(--font-display);font-weight:600;font-size:15.5px;letter-spacing:-.01em;padding:3px 6px}
+.trow.lvl1 .fname{font-size:14px}
+.tname{font-size:13.8px;padding:3px 6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.tlog,.test{
+  font-family:var(--font-mono);font-size:11.5px;text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums;padding-right:6px;
+}
+.tlog{color:var(--ink-soft)}
+.test{color:var(--ink-faint)}
+
+.tstar{display:grid;place-items:center}
+.tstar svg{width:14px;height:14px;fill:var(--star);opacity:.95}
+
+/* checkbox — rounded, satisfying check */
+.cb{
+  width:18px;height:18px;border-radius:6px;margin:0 auto;
+  border:1.5px solid var(--ink-ghost);background:#fff;
+  display:grid;place-items:center;
+  transition:background .18s ease,border-color .18s ease,transform .12s ease;
+}
+.cb:hover{border-color:var(--pc, var(--ink-soft));transform:scale(1.08)}
+.cb:active{transform:scale(.92)}
+.cb svg{width:11px;height:11px;fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.cb svg path{stroke-dasharray:12;stroke-dashoffset:12;transition:stroke-dashoffset .22s ease .04s}
+.done > .cb, .done .cb{background:var(--pc, var(--ink));border-color:var(--pc, var(--ink))}
+.done .cb svg path{stroke-dashoffset:0}
+
+/* play affordance — revealed on hover */
+.play{
+  width:26px;height:26px;border-radius:50%;margin-left:auto;
+  display:grid;place-items:center;
+  background:color-mix(in oklab, var(--pc, var(--moss)) 13%, #fff);
+  color:color-mix(in oklab, var(--pc, var(--moss)) 85%, var(--ink));
+  opacity:0;transform:scale(.85);
+  transition:opacity .15s ease, transform .15s cubic-bezier(.3,1.4,.5,1), background .15s ease;
+}
+.trow:hover .play,.drow:hover .play{opacity:1;transform:scale(1)}
+.play:hover{background:color-mix(in oklab, var(--pc, var(--moss)) 24%, #fff)}
+.play:focus-visible{opacity:1;transform:scale(1);outline:2px solid var(--slate);outline-offset:2px}
+.play svg{width:9px;height:9px;fill:currentColor;margin-left:1px}
+
+/* done styling in tree */
+.trow.done .tname{color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--ink-ghost)}
+
+/* ---------------------------------------------------------------
+   DO — today view
+   --------------------------------------------------------------- */
+.add-row{display:flex;gap:10px;margin-bottom:22px}
+.add-input{
+  flex:1;padding:11px 16px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  font-size:14px;box-shadow:0 1px 2px rgba(34,51,44,.04);
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+.add-input::placeholder{color:var(--ink-ghost)}
+.add-input:focus{outline:none;border-color:color-mix(in oklab, var(--slate) 55%, transparent);box-shadow:0 0 0 3px color-mix(in oklab, var(--slate) 14%, transparent)}
+.add-btn{
+  padding:11px 22px;border-radius:12px;font-weight:600;font-size:13.5px;
+  background:var(--ink);color:#f2f4ee;
+  transition:transform .15s ease, background .15s ease;
+}
+.add-btn:hover{background:#31473d;transform:translateY(-1px)}
+
+.dsection{
+  background:var(--card);border-radius:16px;border:1px solid var(--line-soft);
+  box-shadow:var(--shadow-card);margin-bottom:18px;overflow:hidden;
+}
+.dsec-head{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 18px 12px;border-bottom:1px solid var(--line-soft);
+}
+.dsec-head.morning{background:linear-gradient(100deg, rgba(230,160,95,.17), rgba(230,160,95,.05) 46%, transparent 72%)}
+.dsec-head.starred{background:linear-gradient(100deg, rgba(193,155,46,.13), rgba(193,155,46,.04) 46%, transparent 72%)}
+.dsec-head.evening{background:linear-gradient(100deg, rgba(141,106,137,.15), rgba(141,106,137,.05) 46%, transparent 72%)}
+.dsec-head svg{width:16px;height:16px;flex:0 0 16px}
+.dsec-name{font-family:var(--font-display);font-weight:600;font-size:16.5px;letter-spacing:-.01em}
+.dsec-times{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.dbody{padding:7px 8px}
+.drow{
+  display:grid;grid-template-columns:30px minmax(0,1fr) auto 34px;
+  align-items:center;gap:6px;
+  padding:7px 8px;border-radius:10px;
+  transition:background .13s ease;
+}
+.drow:hover{background:color-mix(in oklab, var(--pc, var(--neutral)) 5%, transparent)}
+.dname{font-size:13.8px;min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:3px}
+.dname .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{
+  font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  padding:2px 8px;border-radius:99px;white-space:nowrap;
+  background:color-mix(in oklab, var(--pc, var(--neutral)) 13%, #fff);
+  color:color-mix(in oklab, var(--pc, var(--neutral)) 78%, var(--ink));
+}
+.dmeta{display:flex;align-items:center;gap:9px;justify-content:flex-end}
+.chip{
+  font-size:11px;font-weight:600;padding:2.5px 9px;border-radius:99px;white-space:nowrap;
+  background:color-mix(in oklab, var(--pc, var(--neutral)) 11%, #fff);
+  color:color-mix(in oklab, var(--pc, var(--neutral)) 80%, var(--ink));
+  display:flex;align-items:center;gap:5px;
+}
+.chip::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--pc, var(--neutral))}
+.dtime{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);white-space:nowrap;text-align:right;min-width:118px;font-variant-numeric:tabular-nums}
+
+.drow.done .dname{color:var(--ink-faint)}
+.drow.done .dname .txt{text-decoration:line-through;text-decoration-color:var(--ink-ghost)}
+.drow.done .pill,.drow.done .chip{opacity:.55}
+.drow.done .play{display:none}
+
+/* the running task — unmistakable */
+.drow.tracking{
+  background:color-mix(in oklab, var(--terra) 8%, #fff);
+  box-shadow:inset 3px 0 0 var(--terra);
+  padding-top:10px;padding-bottom:10px;margin:3px 0;
+}
+.drow.tracking:hover{background:color-mix(in oklab, var(--terra) 11%, #fff)}
+.drow.tracking .dname{font-weight:600}
+.drow.tracking .dtime{color:var(--ink-soft)}
+.live-time{
+  font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--terra);
+  font-variant-numeric:tabular-nums;
+}
+.drow.tracking .play{opacity:1;transform:scale(1);background:var(--terra);color:#fff}
+.drow.tracking .play:hover{background:#a95a3f}
+.drow.tracking .play svg{margin-left:0}
+.trk-flag{display:flex;align-items:center;gap:6px}
+
+/* ---------------------------------------------------------------
+   Footer + responsive
+   --------------------------------------------------------------- */
+.concept-foot{
+  text-align:center;padding:26px 0 4px;
+  font-size:11.5px;letter-spacing:.06em;color:var(--ink-ghost);
+}
+@media (max-width:980px){
+  .sidebar{width:210px;flex-basis:210px;padding:22px 12px 14px}
+  .main{padding:26px 22px 20px}
+  .legend{display:none}
+  .trow{grid-template-columns:22px 25px minmax(0,1fr) 96px 82px 24px 32px}
+  .dtime{min-width:96px}
+  .toolbar{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="sidebar">
+    <div class="wordmark anim" style="--i:0">taakl<span class="tick">.</span></div>
+
+    <nav class="nav" aria-label="Main">
+      <button class="nav-item active anim" style="--i:1" data-view="plan" id="nav-plan" aria-current="page">
+        <svg viewBox="0 0 18 18"><path d="M3 4h12M6 9h9M6 14h9"/><circle cx="3" cy="9" r="0.8" fill="currentColor" stroke="none"/><circle cx="3" cy="14" r="0.8" fill="currentColor" stroke="none"/></svg>
+        Plan
+      </button>
+      <button class="nav-item anim" style="--i:2" data-view="do" id="nav-do">
+        <svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7"/><path d="M6 9.3l2.1 2.1L12.4 7"/></svg>
+        Do
+      </button>
+      <button class="nav-item inert anim" style="--i:3">
+        <svg viewBox="0 0 18 18"><path d="M15 8.5c0 3-2.7 5.5-6 5.5-.9 0-1.8-.2-2.6-.5L3 14.5l1-2.6C3.4 11 3 9.8 3 8.5 3 5.5 5.7 3 9 3s6 2.5 6 5.5z"/></svg>
+        Assistant
+      </button>
+      <button class="nav-item inert anim" style="--i:4">
+        <svg viewBox="0 0 18 18"><path d="M3.5 15V9.5M9 15V4M14.5 15v-7"/></svg>
+        Review
+      </button>
+    </nav>
+
+    <div class="legend anim" style="--i:5">
+      <div class="legend-title">Projects</div>
+      <div class="legend-item p-practice"><span class="dot"></span>Practice</div>
+      <div class="legend-item p-churches"><span class="dot"></span>Churches</div>
+      <div class="legend-item p-home"><span class="dot"></span>Home</div>
+      <div class="legend-item p-admin"><span class="dot"></span>Admin</div>
+      <div class="legend-item p-maint"><span class="dot"></span>Maintenance</div>
+      <div class="legend-item p-side"><span class="dot"></span>Side projects</div>
+      <div class="legend-item p-money"><span class="dot"></span>Money</div>
+      <div class="legend-item p-cook"><span class="dot"></span>Cook and eat</div>
+    </div>
+
+    <div class="side-bottom">
+      <div class="track-card anim" style="--i:6">
+        <div class="track-label"><span class="pulse"></span>Now tracking</div>
+        <div class="track-name">Writing <span class="pill p-practice" style="--pc:var(--terra)">#morning</span> <span class="pill" style="--pc:var(--terra)">#daily</span></div>
+        <div class="track-path"><span class="dot"></span>Practice</div>
+        <div class="track-foot">
+          <span class="track-time js-timer">25:12</span>
+          <button class="stop-btn" title="Stop tracking" aria-label="Stop tracking">
+            <svg viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="side-utils anim" style="--i:7">
+        <button class="util-btn">
+          <svg viewBox="0 0 16 16"><path d="M2 5h12M2 11h12"/><circle cx="10.5" cy="5" r="1.8"/><circle cx="5.5" cy="11" r="1.8"/></svg>
+          Settings
+        </button>
+        <button class="util-btn">
+          <svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 0 1-9.6 3.7M2.5 8a5.5 5.5 0 0 1 9.6-3.7"/><path d="M13.7 1.8v3h-3M2.3 14.2v-3h3"/></svg>
+          Sync
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================= MAIN ============================= -->
+  <main class="main">
+    <div class="content">
+
+      <!-- ======================= PLAN VIEW ======================= -->
+      <section class="view visible" id="view-plan" aria-label="Plan">
+        <div class="view-head anim" style="--i:0">
+          <h1 class="view-title">Plan</h1>
+        </div>
+
+        <div class="toolbar anim" style="--i:1">
+          <div class="filter-wrap">
+            <svg viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.4"/><path d="M9.4 9.4L13 13"/></svg>
+            <input class="filter-input" type="text" placeholder="Filter…">
+          </div>
+          <button class="toggle on" id="hide-done" aria-pressed="true"><span class="switch"></span>Hide done</button>
+          <button class="pill-toggle" id="recent-toggle" aria-pressed="false">Recent</button>
+        </div>
+
+        <div class="tree-card anim" style="--i:2">
+
+          <div class="trow folder top p-practice anim" style="--i:3">
+            <button class="disc" aria-label="Expand Practice"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Practice</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-churches anim" style="--i:4">
+            <button class="disc" aria-label="Expand Churches"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Churches</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-home anim" style="--i:5">
+            <button class="disc open" aria-label="Collapse Home"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Home</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:6">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Manual house/flat search</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:7">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Set up bot/email property search</span>
+            <span class="tlog"></span><span class="test">est 40 mins</span>
+            <span class="tstar"><svg viewBox="0 0 16 16"><path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:8">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Start automated land search</span>
+            <span class="tlog"></span><span class="test">est 40 mins</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder lvl1 p-home anim" style="--i:9">
+            <button class="disc" aria-label="Expand GIS land search place base"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot sub"></span>
+            <span class="fname">GIS land search place base</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder lvl1 p-home anim" style="--i:10">
+            <button class="disc" aria-label="Expand Berlin place research"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot sub"></span>
+            <span class="fname">Berlin place research</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:11">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Look at Italy itinerary options</span>
+            <span class="tlog"></span><span class="test">est 20 mins</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:12">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Think about coming travel plans and best approach now</span>
+            <span class="tlog">23 hrs 15 mins</span><span class="test">est 20 mins</span>
+            <span class="tstar"><svg viewBox="0 0 16 16"><path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:13">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Message Gustav re meeting next week</span>
+            <span class="tlog"></span><span class="test">est 10 mins</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:14">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Message Marta re mellows visit</span>
+            <span class="tlog"></span><span class="test">est 5 mins</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:15">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Message Zjofi re not Lowenherz</span>
+            <span class="tlog"></span><span class="test">est 15 mins</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow task lvl1 p-home anim" style="--i:16">
+            <span class="disc"><span class="leaf-dot"></span></span>
+            <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+            <span class="tname">Housing sweep and messages</span>
+            <span class="tlog"></span><span class="test">est 1 hr</span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-admin anim" style="--i:17">
+            <button class="disc" aria-label="Expand Admin"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Admin</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-maint anim" style="--i:18">
+            <button class="disc" aria-label="Expand Maintenance"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Maintenance</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-side anim" style="--i:19">
+            <button class="disc" aria-label="Expand Side projects"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Side projects</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-money anim" style="--i:20">
+            <button class="disc" aria-label="Expand Money"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Money</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+          <div class="trow folder top p-cook anim" style="--i:21">
+            <button class="disc" aria-label="Expand Cook and eat"><svg viewBox="0 0 9 9"><path d="M2 0.5l5 4-5 4z"/></svg></button>
+            <span class="fdot"></span>
+            <span class="fname">Cook and eat</span>
+            <span class="tlog"></span><span class="test"></span><span class="tstar"></span>
+            <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ======================== DO VIEW ======================== -->
+      <section class="view" id="view-do" aria-label="Do">
+        <div class="view-head anim" style="--i:0">
+          <h1 class="view-title">Today</h1>
+          <span class="view-date" id="today-date"></span>
+        </div>
+
+        <div class="add-row anim" style="--i:1">
+          <input class="add-input" type="text" placeholder="Add new task (/ to choose folder)">
+          <button class="add-btn">Save</button>
+        </div>
+
+        <!-- Morning -->
+        <div class="dsection anim" style="--i:2">
+          <div class="dsec-head morning">
+            <svg viewBox="0 0 16 16" fill="none" stroke="#c98a4b" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="9.5" r="3.2"/><path d="M8 3.4v-1.6M12.3 5.2l1.1-1.1M3.7 5.2L2.6 4.1M1.5 12.8h13M4 15h8"/></svg>
+            <span class="dsec-name">Morning</span>
+            <span class="dsec-times">est 30 mins&ensp;|&ensp;logged 6 hrs 3 mins</span>
+          </div>
+          <div class="dbody">
+            <div class="drow p-practice done" style="--i:3">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Meditate</span><span class="pill">#morning</span><span class="pill">#daily</span><span class="txt">(20m)</span></span>
+              <span class="dmeta"><span class="chip">Practice</span><span class="dtime">1 hr 2 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-practice done" style="--i:4">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Sun salutations/yoga/movement</span><span class="pill">#daily</span><span class="pill">#morning</span><span class="txt">(15m)</span></span>
+              <span class="dmeta"><span class="chip">Practice</span><span class="dtime">3 hrs 50 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-practice tracking" style="--i:5">
+              <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="trk-flag"><span class="pulse"></span></span><span class="txt">Writing</span><span class="pill">#morning</span><span class="pill">#daily</span></span>
+              <span class="dmeta"><span class="chip">Practice</span><span class="dtime">10 mins · est 30 mins</span><span class="live-time js-timer">25:12</span></span>
+              <button class="play" title="Stop timer" aria-label="Stop timer"><svg viewBox="0 0 9 9"><rect x="1" y="1" width="7" height="7" rx="1.6"/></svg></button>
+            </div>
+            <div class="drow p-practice done" style="--i:6">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Exercise for at least 20 minutes</span><span class="pill">#daily</span><span class="pill">#morning</span></span>
+              <span class="dmeta"><span class="chip">Practice</span><span class="dtime">29 mins · est 20 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-practice done" style="--i:7">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Make plan for the day</span><span class="pill">#morning</span><span class="pill">#daily</span></span>
+              <span class="dmeta"><span class="chip">Practice</span><span class="dtime">30 mins · est 10 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Starred -->
+        <div class="dsection anim" style="--i:4">
+          <div class="dsec-head starred">
+            <svg viewBox="0 0 16 16" fill="var(--star)"><path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>
+            <span class="dsec-name">Starred</span>
+            <span class="dsec-times">est 2 hrs 15 mins&ensp;|&ensp;logged 8 hrs 55 mins</span>
+          </div>
+          <div class="dbody">
+            <div class="drow p-maint done" style="--i:5">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Have shower</span></span>
+              <span class="dmeta"><span class="chip">Maintenance</span><span class="dtime">12 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-maint done" style="--i:6">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Order food</span></span>
+              <span class="dmeta"><span class="chip">Maintenance</span><span class="dtime">12 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-home" style="--i:7">
+              <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Get bedding from car</span></span>
+              <span class="dmeta"><span class="chip">Home</span><span class="dtime">est 10 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-churches" style="--i:8">
+              <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Edit and send funding pitch to Jan or other (3 pomos)</span></span>
+              <span class="dmeta"><span class="chip">Churches</span><span class="dtime">est 25 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow p-churches done" style="--i:9">
+              <button class="cb" aria-label="Mark not done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Message council re Valeria invite</span></span>
+              <span class="dmeta"><span class="chip">Churches › Berlin</span><span class="dtime">2 mins · est 5 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Evening -->
+        <div class="dsection anim" style="--i:6">
+          <div class="dsec-head evening">
+            <svg viewBox="0 0 16 16" fill="none" stroke="#8d6a89" stroke-width="1.5" stroke-linecap="round"><path d="M12.8 9.6A5.4 5.4 0 0 1 6.4 3.2a5.4 5.4 0 1 0 6.4 6.4z"/></svg>
+            <span class="dsec-name">Evening</span>
+            <span class="dsec-times">est 25 mins</span>
+          </div>
+          <div class="dbody">
+            <div class="drow" style="--i:7">
+              <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Review day and plan tomorrow</span><span class="pill">#evening</span><span class="pill">#daily</span></span>
+              <span class="dmeta"><span class="dtime">est 15 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+            <div class="drow" style="--i:8">
+              <button class="cb" aria-label="Mark done"><svg viewBox="0 0 12 12"><path d="M2.5 6.3L5 8.8l4.5-5.3"/></svg></button>
+              <span class="dname"><span class="txt">Read fiction</span><span class="pill">#evening</span></span>
+              <span class="dmeta"><span class="dtime">est 10 mins</span></span>
+              <button class="play" title="Start timer"><svg viewBox="0 0 9 9"><path d="M1 0.5l7 4-7 4z"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+    <footer class="concept-foot">Concept 4 — Soft Studio</footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---- view switching ---- */
+  var navPlan = document.getElementById("nav-plan");
+  var navDo = document.getElementById("nav-do");
+  var viewPlan = document.getElementById("view-plan");
+  var viewDo = document.getElementById("view-do");
+
+  function setView(name) {
+    var plan = name === "plan";
+    viewPlan.classList.toggle("visible", plan);
+    viewDo.classList.toggle("visible", !plan);
+    navPlan.classList.toggle("active", plan);
+    navDo.classList.toggle("active", !plan);
+    if (plan) { navPlan.setAttribute("aria-current", "page"); navDo.removeAttribute("aria-current"); }
+    else { navDo.setAttribute("aria-current", "page"); navPlan.removeAttribute("aria-current"); }
+  }
+  navPlan.addEventListener("click", function () { setView("plan"); });
+  navDo.addEventListener("click", function () { setView("do"); });
+
+  /* ---- today's date ---- */
+  var d = new Date();
+  var days = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  document.getElementById("today-date").textContent =
+    days[d.getDay()] + ", " + d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+
+  /* ---- ticking live timer (starts at 25:12) ---- */
+  var elapsed = 25 * 60 + 12;
+  function two(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmt(s) {
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h > 0 ? h + ":" + two(m) + ":" + two(sec) : m + ":" + two(sec);
+  }
+  function tick() {
+    elapsed++;
+    var els = document.querySelectorAll(".js-timer");
+    for (var i = 0; i < els.length; i++) els[i].textContent = fmt(elapsed);
+  }
+  setInterval(tick, 1000);
+
+  /* ---- interactive checkboxes ---- */
+  var boxes = document.querySelectorAll(".cb");
+  for (var i = 0; i < boxes.length; i++) {
+    boxes[i].addEventListener("click", function () {
+      var row = this.closest(".trow, .drow");
+      if (row) row.classList.toggle("done");
+    });
+  }
+
+  /* ---- toolbar toggles (visual state only) ---- */
+  var hideDone = document.getElementById("hide-done");
+  hideDone.addEventListener("click", function () {
+    this.classList.toggle("on");
+    this.setAttribute("aria-pressed", this.classList.contains("on"));
+  });
+  var recent = document.getElementById("recent-toggle");
+  recent.addEventListener("click", function () {
+    this.classList.toggle("on");
+    this.setAttribute("aria-pressed", this.classList.contains("on"));
+  });
+})();
+</script>
+</body>
+</html>

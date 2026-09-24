@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taakl — Concept 3: Night Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #16181a;
+    --panel:     #1d2023;
+    --panel-2:   #202428;
+    --line:      #2a2e33;
+    --line-soft: #24282c;
+    --text:      #c9cdd1;
+    --muted:     #7d838a;
+    --faint:     #565c63;
+    --amber:     #e0a83f;
+    --amber-dim: #9c7936;
+    --green:     #6fbf73;
+    --green-dim: rgba(111,191,115,.14);
+    --red:       #c25a52;
+    --mono: "Spline Sans Mono", ui-monospace, monospace;
+    --sans: "Archivo", sans-serif;
+    --row-h: 32px;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html { color-scheme: dark; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.4;
+    min-height: 100vh;
+    padding-bottom: 64px; /* room for status bar */
+  }
+
+  /* faint engineering grid — atmosphere only */
+  body::before {
+    content:"";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(0deg,  rgba(201,205,209,.05) 0 1px, transparent 1px 44px),
+      repeating-linear-gradient(90deg, rgba(201,205,209,.05) 0 1px, transparent 1px 44px);
+    opacity: .45;
+    mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 100%);
+    z-index: 0;
+  }
+
+  .shell {
+    position: relative; z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  ::selection { background: rgba(224,168,63,.28); }
+
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  input  { font: inherit; color: inherit; }
+
+  /* ======================= HEADER ======================= */
+  header {
+    display: flex; align-items: center; gap: 28px;
+    height: 58px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(to bottom, #191c1f, var(--bg));
+  }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 20px;
+    letter-spacing: .06em;
+    color: var(--text);
+    user-select: none;
+  }
+  .wordmark .tld { color: var(--amber); }
+  .wordmark .cursor {
+    display: inline-block;
+    width: 9px; height: 17px;
+    margin-left: 4px;
+    vertical-align: -2px;
+    background: var(--amber);
+    animation: blink 1.6s steps(2, jump-none) infinite;
+  }
+  @keyframes blink { 50% { opacity: .12; } }
+
+  nav { display: flex; gap: 4px; margin-left: 8px; }
+
+  .nav-btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--muted);
+    padding: 8px 14px 7px;
+    border-bottom: 2px solid transparent;
+    border-radius: 3px 3px 0 0;
+    transition: color .15s, background .15s;
+  }
+  .nav-btn:hover { color: var(--text); background: rgba(255,255,255,.03); }
+  .nav-btn.active {
+    color: var(--amber);
+    border-bottom-color: var(--amber);
+  }
+  .nav-btn:disabled { cursor: default; }
+  .nav-btn:disabled:hover { color: var(--muted); background: none; }
+  .nav-btn:focus-visible, .icon-btn:focus-visible {
+    outline: 1px solid var(--amber); outline-offset: 2px;
+  }
+
+  .header-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+  .icon-btn {
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    color: var(--muted);
+    border-radius: 4px;
+    position: relative;
+    transition: color .15s, background .15s;
+  }
+  .icon-btn:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .led {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--faint);
+    flex: none;
+  }
+  .led.green {
+    background: var(--green);
+    box-shadow: 0 0 5px rgba(111,191,115,.7);
+  }
+  .led.amber { background: var(--amber); box-shadow: 0 0 5px rgba(224,168,63,.6); }
+  .led.pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; box-shadow: 0 0 2px rgba(111,191,115,.3); } }
+
+  .icon-btn .led { position: absolute; top: 4px; right: 4px; width: 5px; height: 5px; }
+
+  /* ======================= VIEWS / PANELS ======================= */
+  .view { display: none; padding-top: 22px; }
+  .view.visible { display: block; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .mono { font-family: var(--mono); }
+
+  .seclabel {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .18em;
+    color: var(--muted);
+  }
+
+  /* row reveal */
+  .animate .row, .animate .sec-head { animation: rise .34s cubic-bezier(.2,.7,.3,1) both; animation-delay: calc(var(--d, 0) * 26ms); }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate .row, .animate .sec-head { animation: none; }
+    .wordmark .cursor, .led.pulse { animation: none; }
+  }
+
+  /* ======================= PLAN: toolbar ======================= */
+  .toolbar {
+    display: flex; align-items: center; gap: 18px;
+    margin-bottom: 14px;
+  }
+
+  .filter-wrap { position: relative; flex: 0 1 300px; }
+  .filter-wrap .prompt {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 12px; color: var(--amber-dim);
+    pointer-events: none;
+  }
+  .filter-input {
+    width: 100%;
+    height: 32px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 0 10px 0 26px;
+    font-family: var(--mono); font-size: 13px;
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .filter-input::placeholder { color: var(--faint); }
+  .filter-input:focus {
+    outline: none;
+    border-color: var(--amber-dim);
+    box-shadow: 0 0 0 3px rgba(224,168,63,.08);
+  }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted);
+    padding: 6px 4px;
+    transition: color .15s;
+  }
+  .toggle:hover { color: var(--text); }
+  .toggle .track {
+    width: 26px; height: 14px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    position: relative;
+    transition: background .15s, border-color .15s;
+  }
+  .toggle .track::after {
+    content:"";
+    position: absolute; top: 2px; left: 2px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--faint);
+    transition: left .15s, background .15s;
+  }
+  .toggle[aria-pressed="true"] { color: var(--text); }
+  .toggle[aria-pressed="true"] .track { border-color: var(--amber-dim); background: rgba(224,168,63,.12); }
+  .toggle[aria-pressed="true"] .track::after { left: 14px; background: var(--amber); }
+
+  /* ======================= TREE ROWS ======================= */
+  .row {
+    display: grid;
+    grid-template-columns: 22px 22px minmax(0,1fr) 118px 104px 22px 34px;
+    align-items: center;
+    height: var(--row-h);
+    padding-left: calc(10px + var(--lvl, 0) * 24px);
+    padding-right: 6px;
+    border-bottom: 1px solid var(--line-soft);
+    transition: background .12s;
+  }
+  .panel > .row:last-child, .section .row:last-child { border-bottom: none; }
+  .row:hover { background: var(--panel-2); }
+
+  .disclose {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--muted);
+    width: 22px; height: 22px;
+    display: grid; place-items: center;
+    border-radius: 3px;
+  }
+  .disclose:hover { color: var(--amber); background: rgba(255,255,255,.04); }
+
+  .checkbox {
+    width: 14px; height: 14px;
+    border: 1px solid var(--muted);
+    border-radius: 3px;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 10px; line-height: 1;
+    color: transparent;
+    background: var(--bg);
+    justify-self: start;
+    transition: border-color .12s, background .12s, color .12s;
+  }
+  .checkbox:hover { border-color: var(--amber); }
+  .row.done .checkbox {
+    border-color: var(--faint);
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+
+  .row-name {
+    font-weight: 500;
+    font-size: 13.5px;
+    color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding-right: 12px;
+  }
+  .row.folder .row-name {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: .02em;
+  }
+  .row.done .row-name {
+    color: var(--faint);
+    text-decoration: line-through;
+    text-decoration-color: rgba(125,131,138,.55);
+  }
+  .row-name .tag { color: var(--muted); font-weight: 400; }
+
+  .t-logged, .t-est {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .t-logged { color: var(--text); opacity: .85; }
+  .t-est { color: var(--muted); }
+  .t-est .k, .t-logged .k { color: var(--faint); }
+
+  .star { text-align: center; font-size: 12px; color: var(--amber); }
+
+  .play {
+    width: 26px; height: 22px;
+    display: grid; place-items: center;
+    justify-self: end;
+    font-family: var(--mono); font-size: 9px;
+    color: var(--amber);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity .12s, background .12s, border-color .12s;
+  }
+  .row:hover .play { opacity: 1; border-color: var(--amber-dim); }
+  .play:hover { background: rgba(224,168,63,.14); }
+  .row.folder .play, .row.done .play { visibility: hidden; }
+
+  /* ======================= DO VIEW ======================= */
+  .do-head {
+    display: flex; align-items: baseline; gap: 14px;
+    margin-bottom: 14px;
+  }
+  .do-head h1 {
+    font-family: var(--mono);
+    font-size: 19px; font-weight: 600;
+    letter-spacing: .04em;
+  }
+  .do-head .date { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: .08em; }
+
+  .add-wrap { position: relative; margin-bottom: 18px; }
+  .add-wrap .prompt {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    font-family: var(--mono); font-size: 13px; color: var(--amber);
+    pointer-events: none;
+  }
+  .add-input {
+    width: 100%; height: 38px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0 12px 0 32px;
+    font-family: var(--mono); font-size: 13px;
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .add-input::placeholder { color: var(--faint); }
+  .add-input:focus {
+    outline: none;
+    border-color: var(--amber-dim);
+    box-shadow: 0 0 0 3px rgba(224,168,63,.08);
+  }
+
+  .section { margin-bottom: 16px; }
+
+  .sec-head {
+    display: flex; align-items: center; gap: 10px;
+    height: 34px;
+    padding: 0 12px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .sec-head .seclabel { color: var(--amber); }
+  .sec-head .seclabel.plain { color: var(--muted); }
+  .sec-totals {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .sec-totals b { color: var(--text); font-weight: 500; }
+
+  .do-row {
+    grid-template-columns: 22px minmax(0,1fr) auto 34px;
+    padding-left: 12px;
+  }
+  .do-meta {
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--muted);
+    white-space: nowrap;
+    text-align: right;
+    padding-right: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .do-meta .path { color: var(--faint); }
+  .do-meta .sep { color: var(--faint); padding: 0 4px; }
+  .row.done .do-meta, .row.done .do-meta .path { color: var(--faint); }
+
+  /* the live row */
+  .row.active-track {
+    background: linear-gradient(to right, var(--green-dim), rgba(111,191,115,.04) 55%, transparent);
+    box-shadow: inset 2px 0 0 var(--green);
+    border-bottom-color: rgba(111,191,115,.18);
+  }
+  .row.active-track:hover { background: linear-gradient(to right, rgba(111,191,115,.18), rgba(111,191,115,.05) 55%, transparent); }
+  .row.active-track .row-name { color: #dfe4e2; }
+  .track-live {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(111,191,115,.35);
+    font-variant-numeric: tabular-nums;
+  }
+  .stop-btn {
+    width: 26px; height: 22px;
+    display: grid; place-items: center;
+    justify-self: end;
+    font-size: 8px;
+    color: var(--red);
+    border: 1px solid rgba(194,90,82,.45);
+    border-radius: 4px;
+    transition: background .12s, border-color .12s;
+  }
+  .stop-btn:hover { background: rgba(194,90,82,.16); border-color: var(--red); }
+
+  /* ======================= STATUS BAR ======================= */
+  .statusbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: 34px;
+    background: #1a1d20;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: stretch;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--muted);
+    z-index: 10;
+    font-variant-numeric: tabular-nums;
+  }
+  .sb-inner {
+    max-width: 1100px; width: 100%;
+    margin: 0 auto; padding: 0 24px;
+    display: flex; align-items: stretch;
+  }
+  .sb-seg {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    border-right: 1px solid var(--line-soft);
+    white-space: nowrap;
+  }
+  .sb-seg:first-child { padding-left: 0; }
+  .sb-seg.grow { margin-left: auto; border-right: none; border-left: 1px solid var(--line-soft); }
+  .sb-seg .k { color: var(--faint); }
+  .sb-seg .v { color: var(--text); }
+  .sb-rec { color: var(--green); text-shadow: 0 0 8px rgba(111,191,115,.3); }
+  .sb-rec .task { color: var(--text); text-shadow: none; }
+  .sb-stop {
+    font-size: 8px; color: var(--red);
+    width: 20px; height: 18px;
+    display: grid; place-items: center;
+    border: 1px solid rgba(194,90,82,.45); border-radius: 3px;
+  }
+  .sb-stop:hover { background: rgba(194,90,82,.16); border-color: var(--red); }
+  .sb-keys .key {
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10.5px;
+  }
+  .sb-concept { color: var(--faint); letter-spacing: .06em; }
+
+  /* ======================= RESPONSIVE ======================= */
+  @media (max-width: 980px) {
+    .sb-keys { display: none; }
+    .row { grid-template-columns: 22px 22px minmax(0,1fr) 100px 92px 20px 32px; }
+  }
+  @media (max-width: 860px) {
+    header { gap: 14px; }
+    .toolbar { flex-wrap: wrap; gap: 10px 16px; }
+    .sb-seg { padding: 0 10px; }
+    .sb-nodes { display: none; }
+    .do-meta .path { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ======================= HEADER ======================= -->
+  <header>
+    <div class="wordmark">taakl<span class="tld"></span><span class="cursor"></span></div>
+    <nav>
+      <button class="nav-btn active" id="tab-plan" onclick="setTab('plan')">Plan</button>
+      <button class="nav-btn" id="tab-do" onclick="setTab('do')">Do</button>
+      <button class="nav-btn" disabled>Assistant</button>
+      <button class="nav-btn" disabled>Review</button>
+    </nav>
+    <div class="header-tools">
+      <button class="icon-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </button>
+      <button class="icon-btn" title="Sync — up to date" aria-label="Sync">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        <span class="led green"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================= PLAN VIEW ======================= -->
+  <main class="view visible animate" id="view-plan">
+
+    <div class="toolbar">
+      <div class="filter-wrap">
+        <span class="prompt">/</span>
+        <input class="filter-input" type="text" placeholder="Filter&hellip;" aria-label="Filter tasks">
+      </div>
+      <button class="toggle" aria-pressed="true" onclick="flipToggle(this)"><span class="track"></span>Hide done</button>
+      <button class="toggle" aria-pressed="false" onclick="flipToggle(this)"><span class="track"></span>Recent</button>
+    </div>
+
+    <div class="panel" id="tree">
+      <!-- top-level collapsed folders -->
+      <div class="row folder" style="--d:0"><button class="disclose">&#9656;</button><span></span><span class="row-name">Practice</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:1"><button class="disclose">&#9656;</button><span></span><span class="row-name">Churches</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+
+      <!-- Home, expanded -->
+      <div class="row folder" style="--d:2"><button class="disclose">&#9662;</button><span></span><span class="row-name">Home</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+
+      <div class="row" style="--d:3;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Manual house/flat search</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:4;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Set up bot/email property search</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 40 mins</span><span class="star">&#9733;</span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:5;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Start automated land search</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 40 mins</span><span class="star"></span><button class="play">&#9654;</button></div>
+
+      <div class="row folder" style="--d:6;--lvl:1"><button class="disclose">&#9656;</button><span></span><span class="row-name">GIS land search place base</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:7;--lvl:1"><button class="disclose">&#9656;</button><span></span><span class="row-name">Berlin place research</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+
+      <div class="row" style="--d:8;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Look at Italy itinerary options</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 20 mins</span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:9;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Think about coming travel plans and best approach now</span><span class="t-logged">23 hrs 15 mins</span><span class="t-est"><span class="k">est</span> 20 mins</span><span class="star">&#9733;</span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:10;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Message Gustav re meeting next week</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 10 mins</span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:11;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Message Marta re mellows visit</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 5 mins</span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:12;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Message Zjofi re not Lowenherz</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 15 mins</span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row" style="--d:13;--lvl:1"><span></span><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Housing sweep and messages</span><span class="t-logged"></span><span class="t-est"><span class="k">est</span> 1 hr</span><span class="star"></span><button class="play">&#9654;</button></div>
+
+      <!-- remaining top-level collapsed folders -->
+      <div class="row folder" style="--d:14"><button class="disclose">&#9656;</button><span></span><span class="row-name">Admin</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:15"><button class="disclose">&#9656;</button><span></span><span class="row-name">Maintenance</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:16"><button class="disclose">&#9656;</button><span></span><span class="row-name">Side projects</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:17"><button class="disclose">&#9656;</button><span></span><span class="row-name">Money</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+      <div class="row folder" style="--d:18"><button class="disclose">&#9656;</button><span></span><span class="row-name">Cook and eat</span><span class="t-logged"></span><span class="t-est"></span><span class="star"></span><button class="play">&#9654;</button></div>
+    </div>
+
+  </main>
+
+  <!-- ======================= DO VIEW ======================= -->
+  <main class="view" id="view-do">
+
+    <div class="do-head">
+      <h1>Today</h1>
+      <span class="date">TUE 2026-09-23</span>
+    </div>
+
+    <div class="add-wrap">
+      <span class="prompt">&gt;</span>
+      <input class="add-input" type="text" placeholder="Add new task (/ to choose folder)" aria-label="Add new task">
+    </div>
+
+    <!-- Morning -->
+    <div class="panel section">
+      <div class="sec-head" style="--d:0">
+        <span class="led amber"></span>
+        <span class="seclabel">Morning</span>
+        <span class="sec-totals"><span>est</span> <b>30 mins</b> &nbsp;|&nbsp; <span>logged</span> <b>6 hrs 3 mins</b></span>
+      </div>
+      <div class="row do-row done" style="--d:1"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Meditate <span class="tag">#morning #daily</span> (20m)</span><span class="do-meta"><span class="path">Practice</span><span class="sep">|</span>1 hr 2 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row done" style="--d:2"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Sun salutations/yoga/movement <span class="tag">#daily #morning</span> (15m)</span><span class="do-meta"><span class="path">Practice</span><span class="sep">|</span>3 hrs 50 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row active-track" style="--d:3">
+        <button class="checkbox" onclick="toggleDone(this)">&#10003;</button>
+        <span class="row-name">Writing <span class="tag">#morning #daily</span></span>
+        <span class="do-meta">
+          <span class="track-live"><span class="led green pulse"></span><span data-elapsed>25:12</span></span>
+          <span class="sep">&nbsp;</span>
+          <span class="path">Practice</span><span class="sep">|</span>10 mins<span class="sep">|</span>est 30 mins
+        </span>
+        <button class="stop-btn" title="Stop session" onclick="return false">&#9632;</button>
+      </div>
+      <div class="row do-row done" style="--d:4"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Exercise for at least 20 minutes <span class="tag">#daily #morning</span></span><span class="do-meta"><span class="path">Practice</span><span class="sep">|</span>29 mins<span class="sep">|</span>est 20 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row done" style="--d:5"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Make plan for the day <span class="tag">#morning #daily</span></span><span class="do-meta"><span class="path">Practice</span><span class="sep">|</span>30 mins<span class="sep">|</span>est 10 mins</span><button class="play">&#9654;</button></div>
+    </div>
+
+    <!-- Starred -->
+    <div class="panel section">
+      <div class="sec-head" style="--d:6">
+        <span class="star" style="font-size:11px">&#9733;</span>
+        <span class="seclabel">Starred</span>
+        <span class="sec-totals"><span>est</span> <b>2 hrs 15 mins</b> &nbsp;|&nbsp; <span>logged</span> <b>8 hrs 55 mins</b></span>
+      </div>
+      <div class="row do-row done" style="--d:7"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Have shower</span><span class="do-meta"><span class="path">Maintenance</span><span class="sep">|</span>12 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row done" style="--d:8"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Order food</span><span class="do-meta"><span class="path">Maintenance</span><span class="sep">|</span>12 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row" style="--d:9"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Get bedding from car</span><span class="do-meta"><span class="path">Home</span><span class="sep">|</span>est 10 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row" style="--d:10"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Edit and send funding pitch to Jan or other (3 pomos)</span><span class="do-meta"><span class="path">Churches</span><span class="sep">|</span>est 25 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row done" style="--d:11"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Message council re Valeria invite</span><span class="do-meta"><span class="path">Churches &gt; Berlin</span><span class="sep">|</span>2 mins<span class="sep">|</span>est 5 mins</span><button class="play">&#9654;</button></div>
+    </div>
+
+    <!-- Evening -->
+    <div class="panel section">
+      <div class="sec-head" style="--d:12">
+        <span class="led"></span>
+        <span class="seclabel plain">Evening</span>
+        <span class="sec-totals"><span>est</span> <b>25 mins</b></span>
+      </div>
+      <div class="row do-row" style="--d:13"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Review day and plan tomorrow <span class="tag">#evening #daily</span></span><span class="do-meta">est 15 mins</span><button class="play">&#9654;</button></div>
+      <div class="row do-row" style="--d:14"><button class="checkbox" onclick="toggleDone(this)">&#10003;</button><span class="row-name">Read fiction <span class="tag">#evening</span></span><span class="do-meta">est 10 mins</span><button class="play">&#9654;</button></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ======================= STATUS BAR ======================= -->
+<footer class="statusbar">
+  <div class="sb-inner">
+    <div class="sb-seg">
+      <span class="led green"></span>
+      <span class="k">sync</span><span class="v">ok</span><span class="k">22:41:07</span>
+    </div>
+    <div class="sb-seg sb-rec">
+      <span class="led green pulse"></span>
+      <span>rec</span>
+      <span class="task">Writing</span>
+      <span class="k">Practice /</span>
+      <span data-elapsed>25:12</span>
+      <button class="sb-stop" title="Stop session">&#9632;</button>
+    </div>
+    <div class="sb-seg sb-nodes">
+      <span class="v">14</span><span class="k">sessions</span>
+      <span class="k">&middot;</span>
+      <span class="k">day</span><span class="v">14 hrs 58 mins</span>
+    </div>
+    <div class="sb-seg sb-keys grow">
+      <span class="key">&#8984;K</span><span class="k">filter</span>
+      <span class="k">&middot;</span>
+      <span class="key">space</span><span class="k">start/stop</span>
+    </div>
+    <div class="sb-seg sb-concept">Concept 3 &mdash; Night Console</div>
+  </div>
+</footer>
+
+<script>
+  // ---- tab switching -------------------------------------------------
+  function setTab(name) {
+    var plan = document.getElementById('view-plan');
+    var doV  = document.getElementById('view-do');
+    var show = name === 'plan' ? plan : doV;
+    var hide = name === 'plan' ? doV : plan;
+    hide.classList.remove('visible', 'animate');
+    show.classList.remove('animate');
+    show.classList.add('visible');
+    void show.offsetWidth;           // restart the staggered reveal
+    show.classList.add('animate');
+    document.getElementById('tab-plan').classList.toggle('active', name === 'plan');
+    document.getElementById('tab-do').classList.toggle('active', name === 'do');
+  }
+
+  // ---- toolbar toggles ----------------------------------------------
+  function flipToggle(btn) {
+    btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+  }
+
+  // ---- checkbox toggles done styling --------------------------------
+  function toggleDone(box) {
+    var row = box.closest('.row');
+    if (row) row.classList.toggle('done');
+  }
+
+  // ---- live session timer -------------------------------------------
+  var elapsed = 25 * 60 + 12;        // 25:12
+  function fmt(s) {
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return h > 0 ? h + ':' + p(m) + ':' + p(sec) : m + ':' + p(sec);
+  }
+  function tick() {
+    elapsed++;
+    var t = fmt(elapsed);
+    var els = document.querySelectorAll('[data-elapsed]');
+    for (var i = 0; i < els.length; i++) els[i].textContent = t;
+    document.title = t + ' ▶ Writing — Taakl';
+  }
+  setInterval(tick, 1000);
+</script>
+
+</body>
+</html>

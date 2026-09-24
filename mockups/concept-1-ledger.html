@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taakl — Concept 1 · Analog Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   Taakl full-app redesign concept 1 — "Analog Ledger"
+   Extends the Review "time ledger" aesthetic to Plan + Do.
+   Static mockup, sample data, no dependencies.
+   ================================================================ */
+:root{
+  --paper:#f4f1e9;
+  --card:#fcfaf5;
+  --ink:#232b2e;
+  --muted:#84806f;
+  --faint:#a9a493;
+  --hair:#e4dfcf;
+  --hair2:#ece8da;
+  --accent:#457b87;
+  --gold:#c9a227;
+  --now:#bf4a3a;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+  --disp:'Fraunces',serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  background:var(--paper);color:var(--ink);
+  font-family:var(--sans);font-size:14px;line-height:1.45;min-height:100vh;
+}
+/* paper grain */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.38 0 0 0 0 0.3 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.frame{max-width:1100px;margin:0 auto;padding:26px 32px 70px}
+button{font-family:var(--sans)}
+button:focus-visible,input:focus-visible,.tick:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;border-radius:4px;
+}
+
+/* ================= app header ================= */
+.appbar{
+  display:flex;align-items:baseline;gap:34px;flex-wrap:wrap;
+  padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--hair);
+}
+.wordmark{
+  font-family:var(--disp);font-weight:560;font-size:27px;line-height:1;
+  letter-spacing:-.02em;font-variation-settings:'opsz' 90;color:var(--ink);
+}
+.wordmark i{font-style:normal;color:var(--gold)}
+.mainnav{display:flex;gap:22px;align-items:baseline}
+.mainnav button{
+  background:none;border:0;cursor:pointer;font-family:var(--mono);font-size:11px;
+  letter-spacing:.22em;text-transform:uppercase;color:var(--faint);
+  padding:4px 1px 8px;border-bottom:2px solid transparent;
+  transition:color .15s,border-color .15s;position:relative;top:-1px;
+}
+.mainnav button:hover{color:var(--muted)}
+.mainnav button.active{color:var(--ink);border-bottom-color:var(--accent)}
+.mainnav button.inert{cursor:default}
+.appbar-tools{margin-left:auto;display:flex;gap:8px;align-self:center}
+.iconbtn{
+  width:32px;height:32px;border-radius:999px;background:var(--card);
+  border:1px solid var(--hair);cursor:pointer;color:var(--muted);
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:border-color .15s,color .15s;
+}
+.iconbtn:hover{border-color:var(--faint);color:var(--ink)}
+.iconbtn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.iconbtn.synced svg{stroke:var(--accent)}
+
+/* ================= now-tracking bar ================= */
+.nowbar{
+  position:sticky;top:10px;z-index:50;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--card);border:1px solid var(--hair);border-left:3px solid var(--now);
+  border-radius:12px;padding:10px 16px 10px 14px;margin-bottom:26px;
+  box-shadow:0 1px 0 rgba(35,43,46,.04),0 8px 24px -18px rgba(35,43,46,.18);
+}
+.nb-dot{width:8px;height:8px;border-radius:50%;background:var(--now);flex:none;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.nb-kicker{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--now);flex:none;
+}
+.nb-task{font-family:var(--disp);font-size:16.5px;font-weight:520;letter-spacing:-.005em;min-width:0}
+.nb-task .tg{font-size:12px;position:relative;top:-1px}
+.nb-crumb{font-size:11.5px;color:var(--muted)}
+.nb-crumb::before{content:'· ';color:var(--faint)}
+.nb-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.nb-elapsed{
+  font-family:var(--mono);font-size:19px;font-weight:500;color:var(--now);
+  font-variant-numeric:tabular-nums;letter-spacing:.02em;
+}
+.stopbtn{
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--now);background:none;border:1px solid rgba(191,74,58,.45);
+  border-radius:999px;padding:6px 13px 6px 10px;transition:background .15s,color .15s;
+}
+.stopbtn i{width:8px;height:8px;background:currentColor;border-radius:1.5px;flex:none}
+.stopbtn:hover{background:var(--now);color:var(--card);border-color:var(--now)}
+
+/* ================= view headers ================= */
+.view-head{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  padding-bottom:14px;margin-bottom:4px;border-bottom:1px solid var(--hair);
+}
+.kicker{
+  font-family:var(--mono);font-size:10px;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:5px;
+}
+h1{
+  font-family:var(--disp);font-weight:480;font-size:clamp(26px,3.6vw,38px);
+  letter-spacing:-.01em;line-height:1.05;font-variation-settings:'opsz' 60;
+}
+h1 em{font-style:italic;font-weight:400;color:var(--muted)}
+
+/* ================= plan controls ================= */
+.plan-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.filter{
+  font-family:var(--sans);font-size:13px;color:var(--ink);width:210px;
+  background:var(--card);border:1px solid var(--hair);border-radius:999px;
+  padding:7px 15px;transition:border-color .15s;
+}
+.filter::placeholder{color:var(--faint);font-style:italic}
+.filter:focus{outline:none;border-color:var(--accent)}
+.ctl-check{
+  display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);
+  cursor:pointer;user-select:none;
+}
+.ctl-check input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.pillbtn{
+  font-size:12.5px;color:var(--muted);cursor:pointer;background:var(--card);
+  border:1px solid var(--hair);border-radius:999px;padding:6px 16px;
+  transition:border-color .15s,color .15s,background .15s;
+}
+.pillbtn:hover{border-color:var(--faint);color:var(--ink)}
+.pillbtn.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+/* ================= shared ledger card ================= */
+.ledger-card{
+  background:var(--card);border:1px solid var(--hair);border-radius:12px;
+  box-shadow:0 1px 0 rgba(35,43,46,.04),0 8px 24px -18px rgba(35,43,46,.18);
+  margin-top:20px;overflow:hidden;
+}
+
+/* ================= plan tree ================= */
+.tree{padding:8px 0 10px}
+.trow{
+  display:grid;grid-template-columns:26px 26px 1fr 118px 104px 24px 34px;
+  align-items:center;min-height:37px;padding:0 14px 0 12px;
+  position:relative;transition:background .12s;
+}
+.trow+.trow,.tgroup .trow:first-child,.tgroup+.trow{border-top:1px solid var(--hair2)}
+.trow:hover{background:#f8f5ec}
+.tgroup{border-top:1px solid var(--hair2)}
+.tgroup .trow{padding-left:38px}
+.tgroup .trow:first-child{border-top:0}
+.tgroup.hidden{display:none}
+/* disclosure */
+.disc{
+  width:22px;height:22px;border:0;background:none;cursor:pointer;color:var(--faint);
+  display:inline-flex;align-items:center;justify-content:center;border-radius:5px;
+  transition:color .15s,transform .18s;
+}
+.disc:hover{color:var(--ink)}
+.disc svg{width:9px;height:9px;fill:currentColor;transition:transform .18s}
+.trow.open .disc svg{transform:rotate(90deg)}
+/* leaf dot in the disclosure column */
+.leafdot{color:var(--hair);font-size:15px;text-align:center;line-height:1}
+/* ledger tick checkbox */
+.tick{
+  width:17px;height:17px;border:1.5px solid #cfc9b4;border-radius:3px;
+  background:var(--card);cursor:pointer;position:relative;padding:0;
+  transition:border-color .15s;
+}
+.tick:hover{border-color:var(--accent)}
+.tick::after{
+  content:'';position:absolute;left:2px;top:-4px;width:14px;height:14px;
+  background:none;opacity:0;transform:rotate(-6deg) scale(.6);
+  transition:opacity .15s,transform .18s cubic-bezier(.3,1.4,.5,1);
+  border:0;
+  /* hand-set ledger tick, drawn as an SVG stroke */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M2 8.5l3 3.5L12.5 1.5' fill='none' stroke='%23457b87' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.done>.tick::after,.trow.done .tick::after{opacity:1;transform:rotate(0) scale(1)}
+/* names */
+.t-name{
+  font-size:13.5px;font-weight:500;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:14px;
+}
+.trow.folder .t-name{
+  font-family:var(--disp);font-size:15.5px;font-weight:560;letter-spacing:-.005em;
+}
+.tg{font-family:var(--mono);font-size:11px;color:var(--accent);opacity:.75;margin-left:2px}
+.est-inline{color:var(--faint);font-weight:400;font-size:12px}
+/* time columns */
+.t-log,.t-est{
+  font-family:var(--mono);font-size:11px;text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.t-log{color:var(--muted)}
+.t-est{color:var(--faint)}
+/* star */
+.t-star{text-align:center;color:var(--gold);font-size:13px;line-height:1}
+/* play affordance */
+.play{
+  width:26px;height:26px;border-radius:999px;border:1px solid var(--hair);
+  background:var(--card);color:var(--accent);cursor:pointer;justify-self:end;
+  display:inline-flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity .15s,border-color .15s,background .15s,color .15s;
+}
+.play svg{width:9px;height:9px;fill:currentColor;margin-left:1px}
+.trow:hover .play,.drow:hover .play,.play:focus-visible{opacity:1}
+.play:hover{background:var(--accent);color:var(--card);border-color:var(--accent)}
+/* tree footer rule */
+.tree-foot{
+  border-top:1px solid var(--hair);padding:9px 16px;
+  font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.08em;
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+
+/* ================= do view ================= */
+.addtask{
+  display:flex;align-items:center;gap:12px;margin-top:20px;
+  background:var(--card);border:1px solid var(--hair);border-radius:12px;
+  padding:4px 6px 4px 16px;
+  box-shadow:0 1px 0 rgba(35,43,46,.04),0 8px 24px -18px rgba(35,43,46,.18);
+  transition:border-color .15s;
+}
+.addtask:focus-within{border-color:var(--accent)}
+.addtask .plus{font-family:var(--disp);font-size:19px;color:var(--faint);line-height:1}
+.addtask input{
+  flex:1;border:0;background:none;font-family:var(--sans);font-size:13.5px;
+  color:var(--ink);padding:9px 0;min-width:0;
+}
+.addtask input::placeholder{color:var(--faint);font-style:italic}
+.addtask input:focus{outline:none}
+.addtask .save{
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--muted);background:none;border:1px solid var(--hair);border-radius:999px;
+  padding:7px 16px;cursor:pointer;transition:border-color .15s,color .15s;
+}
+.addtask .save:hover{border-color:var(--faint);color:var(--ink)}
+
+.dsec-head{
+  display:flex;align-items:baseline;gap:12px;
+  padding:13px 16px 10px;border-bottom:1px solid var(--hair);
+  background:#f6f3e9;
+}
+.dsec-head .glyph{font-size:12px;color:var(--gold);position:relative;top:-1px}
+.dsec-name{
+  font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;
+  color:var(--ink);font-weight:500;
+}
+.dsec-tot{
+  margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.dsec-tot b{font-weight:400;color:var(--faint);padding:0 4px}
+.drow{
+  display:grid;grid-template-columns:26px 1fr 128px 110px 38px;
+  align-items:center;min-height:41px;padding:0 12px 0 14px;
+  transition:background .12s;
+}
+.drow+.drow{border-top:1px solid var(--hair2)}
+.drow:hover{background:#f8f5ec}
+.d-name{min-width:0;padding:6px 14px 6px 10px;font-size:13.5px;font-weight:500;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d-crumb{font-size:11px;color:var(--muted);font-weight:400;margin-left:8px}
+.d-log,.d-est{
+  font-family:var(--mono);font-size:11px;text-align:right;white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.d-log{color:var(--muted)}
+.d-est{color:var(--faint)}
+/* done rows */
+.drow.done .d-name{color:var(--faint);font-weight:400;text-decoration:line-through;text-decoration-color:#c9c3ae}
+.drow.done .d-crumb{color:var(--faint)}
+.drow.done .tg{opacity:.45}
+.drow.done .play{display:none}
+/* the running row — red ink annotation */
+.drow.active{
+  background:rgba(191,74,58,.05);border-left:3px solid var(--now);
+  padding-left:11px;
+}
+.drow.active:hover{background:rgba(191,74,58,.075)}
+.drow.active .d-name{font-weight:600}
+.d-live{
+  font-family:var(--disp);font-style:italic;font-size:12.5px;color:var(--now);
+  margin-left:10px;white-space:nowrap;
+}
+.d-live b{font-family:var(--mono);font-style:normal;font-weight:500;font-size:11.5px;
+  font-variant-numeric:tabular-nums}
+.d-live::before{
+  content:'';display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--now);margin-right:6px;vertical-align:1px;
+  animation:pulse 1.6s ease-in-out infinite;
+}
+.drow.active .stop-mini{
+  width:26px;height:26px;border-radius:999px;border:1px solid rgba(191,74,58,.5);
+  background:var(--card);color:var(--now);cursor:pointer;justify-self:end;
+  display:inline-flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s;
+}
+.drow.active .stop-mini i{width:8px;height:8px;background:currentColor;border-radius:1.5px}
+.drow.active .stop-mini:hover{background:var(--now);color:var(--card)}
+
+/* ================= reveal animation ================= */
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.rv{animation:rise .4s cubic-bezier(.2,.7,.3,1) both}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+
+/* ================= footer ================= */
+.mock-note{
+  margin-top:40px;text-align:center;font-family:var(--mono);font-size:10.5px;
+  color:var(--faint);letter-spacing:.08em;
+}
+.mock-note b{font-weight:500;color:var(--muted)}
+
+/* ================= narrow ================= */
+@media (max-width:840px){
+  .frame{padding:18px 14px 50px}
+  .appbar{gap:18px}
+  .trow{grid-template-columns:24px 24px 1fr 92px 86px 20px 30px;padding-right:8px}
+  .tgroup .trow{padding-left:28px}
+  .drow{grid-template-columns:26px 1fr 100px 92px 34px}
+  .nb-crumb{display:none}
+  .t-log,.t-est,.d-log,.d-est{font-size:10px}
+}
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <!-- ============ app header ============ -->
+  <header class="appbar">
+    <span class="wordmark">taakl<i>.</i></span>
+    <nav class="mainnav" id="mainNav" aria-label="Main">
+      <button class="active" data-view="plan">Plan</button>
+      <button data-view="do">Do</button>
+      <button class="inert" title="Not in this mockup">Assistant</button>
+      <button class="inert" title="Not in this mockup">Review</button>
+    </nav>
+    <div class="appbar-tools">
+      <button class="iconbtn" title="Settings">
+        <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </button>
+      <button class="iconbtn synced" title="Synced · 2 min ago">
+        <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ now tracking (persistent) ============ -->
+  <div class="nowbar rv">
+    <span class="nb-dot"></span>
+    <span class="nb-kicker">Now tracking</span>
+    <span class="nb-task">Writing <span class="tg">#morning</span> <span class="tg">#daily</span></span>
+    <span class="nb-crumb">Practice</span>
+    <span class="nb-right">
+      <span class="nb-elapsed js-elapsed">25:12</span>
+      <button class="stopbtn" title="Stop session"><i></i>Stop</button>
+    </span>
+  </div>
+
+  <!-- ============ PLAN view ============ -->
+  <main id="view-plan">
+    <div class="view-head rv">
+      <div>
+        <div class="kicker">Taakl <b style="color:var(--muted);font-weight:400">· Plan</b></div>
+        <h1>The outline <em>· everything</em></h1>
+      </div>
+      <div class="plan-controls">
+        <input class="filter" type="text" placeholder="Filter…">
+        <label class="ctl-check"><input type="checkbox" checked> Hide done</label>
+        <button class="pillbtn" id="recentBtn">Recent</button>
+      </div>
+    </div>
+
+    <section class="ledger-card rv">
+      <div class="tree" id="tree">
+
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Practice"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Practice</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Churches"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Churches</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+
+        <div class="trow folder open rv" id="homeRow">
+          <button class="disc" aria-label="Collapse Home" data-toggle="homeKids"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Home</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+
+        <div class="tgroup" id="homeKids">
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Manual house/flat search</span>
+            <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Set up bot/email property search</span>
+            <span class="t-log"></span><span class="t-est">est 40 mins</span><span class="t-star">★</span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Start automated land search</span>
+            <span class="t-log"></span><span class="t-est">est 40 mins</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow folder rv">
+            <button class="disc" aria-label="Expand GIS land search place base"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+            <span></span><span class="t-name">GIS land search place base</span>
+            <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+          </div>
+          <div class="trow folder rv">
+            <button class="disc" aria-label="Expand Berlin place research"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+            <span></span><span class="t-name">Berlin place research</span>
+            <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Look at Italy itinerary options</span>
+            <span class="t-log"></span><span class="t-est">est 20 mins</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Think about coming travel plans and best approach now</span>
+            <span class="t-log">23 hrs 15 mins</span><span class="t-est">est 20 mins</span><span class="t-star">★</span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Message Gustav re meeting next week</span>
+            <span class="t-log"></span><span class="t-est">est 10 mins</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Message Marta re mellows visit</span>
+            <span class="t-log"></span><span class="t-est">est 5 mins</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Message Zjofi re not Lowenherz</span>
+            <span class="t-log"></span><span class="t-est">est 15 mins</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+          <div class="trow rv">
+            <span class="leafdot">·</span>
+            <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+            <span class="t-name">Housing sweep and messages</span>
+            <span class="t-log"></span><span class="t-est">est 1 hr</span><span class="t-star"></span>
+            <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+          </div>
+        </div>
+
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Admin"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Admin</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Maintenance"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Maintenance</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Side projects"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Side projects</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Money"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Money</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+        <div class="trow folder rv">
+          <button class="disc" aria-label="Expand Cook and eat"><svg viewBox="0 0 12 12"><path d="M3.5 1.5l6 4.5-6 4.5z"/></svg></button>
+          <span></span><span class="t-name">Cook and eat</span>
+          <span class="t-log"></span><span class="t-est"></span><span class="t-star"></span><span></span>
+        </div>
+      </div>
+      <div class="tree-foot"><span>10 folders · 9 open tasks in view</span><span>logged · estimate</span></div>
+    </section>
+  </main>
+
+  <!-- ============ DO view ============ -->
+  <main id="view-do" hidden>
+    <div class="view-head rv">
+      <div>
+        <div class="kicker">Taakl <b style="color:var(--muted);font-weight:400">· Do</b></div>
+        <h1>Today <em>— Tuesday, September 23</em></h1>
+      </div>
+    </div>
+
+    <div class="addtask rv">
+      <span class="plus">+</span>
+      <input type="text" placeholder="Add new task (/ to choose folder)">
+      <button class="save">Save</button>
+    </div>
+
+    <!-- Morning -->
+    <section class="ledger-card rv">
+      <div class="dsec-head">
+        <span class="glyph">☀</span><span class="dsec-name">Morning</span>
+        <span class="dsec-tot">est 30 mins <b>|</b> logged 6 hrs 3 mins</span>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Meditate <span class="tg">#morning</span> <span class="tg">#daily</span> <span class="est-inline">(20m)</span></span>
+        <span class="d-log"></span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Sun salutations/yoga/movement <span class="tg">#daily</span> <span class="tg">#morning</span> <span class="est-inline">(15m)</span></span>
+        <span class="d-log"></span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow active rv">
+        <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+        <span class="d-name">Writing <span class="tg">#morning</span> <span class="tg">#daily</span><span class="d-crumb">Practice</span><span class="d-live">tracking <b class="js-elapsed">25:12</b></span></span>
+        <span class="d-log">10 mins</span><span class="d-est">est 30 mins</span>
+        <button class="stop-mini" title="Stop session"><i></i></button>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Exercise for at least 20 minutes <span class="tg">#daily</span> <span class="tg">#morning</span></span>
+        <span class="d-log"></span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Make plan for the day <span class="tg">#morning</span> <span class="tg">#daily</span></span>
+        <span class="d-log"></span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+    </section>
+
+    <!-- Starred -->
+    <section class="ledger-card rv">
+      <div class="dsec-head">
+        <span class="glyph">★</span><span class="dsec-name">Starred</span>
+        <span class="dsec-tot">est 2 hrs 15 mins <b>|</b> logged 8 hrs 55 mins</span>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Have shower<span class="d-crumb">Maintenance</span></span>
+        <span class="d-log">12 mins</span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Order food<span class="d-crumb">Maintenance</span></span>
+        <span class="d-log">12 mins</span><span class="d-est"></span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow rv">
+        <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+        <span class="d-name">Get bedding from car<span class="d-crumb">Home</span></span>
+        <span class="d-log"></span><span class="d-est">est 10 mins</span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow rv">
+        <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+        <span class="d-name">Edit and send funding pitch to Jan or other (3 pomos)<span class="d-crumb">Churches</span></span>
+        <span class="d-log"></span><span class="d-est">est 25 mins</span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow done rv">
+        <button class="tick" role="checkbox" aria-checked="true" aria-label="Mark not done"></button>
+        <span class="d-name">Message council re Valeria invite<span class="d-crumb">Churches › Berlin</span></span>
+        <span class="d-log">2 mins</span><span class="d-est">est 5 mins</span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+    </section>
+
+    <!-- Evening -->
+    <section class="ledger-card rv">
+      <div class="dsec-head">
+        <span class="glyph">☾</span><span class="dsec-name">Evening</span>
+        <span class="dsec-tot">est 25 mins</span>
+      </div>
+      <div class="drow rv">
+        <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+        <span class="d-name">Review day and plan tomorrow <span class="tg">#evening</span> <span class="tg">#daily</span></span>
+        <span class="d-log"></span><span class="d-est">est 15 mins</span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+      <div class="drow rv">
+        <button class="tick" role="checkbox" aria-checked="false" aria-label="Mark done"></button>
+        <span class="d-name">Read fiction <span class="tg">#evening</span></span>
+        <span class="d-log"></span><span class="d-est">est 10 mins</span>
+        <button class="play" title="Start session"><svg viewBox="0 0 12 12"><path d="M2.5 1.5l8 4.5-8 4.5z"/></svg></button>
+      </div>
+    </section>
+  </main>
+
+  <div class="mock-note"><b>Concept 1 — Analog Ledger</b> · static mockup · sample data · not wired to the app</div>
+</div>
+
+<script>
+/* ---------- tab switching ---------- */
+var nav=document.getElementById('mainNav');
+var views={plan:document.getElementById('view-plan'),do:document.getElementById('view-do')};
+function stagger(root){
+  var els=root.querySelectorAll('.rv'),i=0;
+  els.forEach(function(el){
+    el.style.animation='none';void el.offsetWidth;   /* restart */
+    el.style.animation='';el.style.animationDelay=Math.min(i*26,600)+'ms';i++;
+  });
+}
+function setView(v,animate){
+  nav.querySelectorAll('button[data-view]').forEach(function(x){
+    x.classList.toggle('active',x.getAttribute('data-view')===v);
+  });
+  Object.keys(views).forEach(function(k){views[k].hidden=(k!==v);});
+  if(animate)stagger(views[v]);
+  if(history.replaceState)history.replaceState(null,'','#'+v);
+}
+nav.addEventListener('click',function(e){
+  var b=e.target.closest('button[data-view]');
+  if(!b)return;
+  setView(b.getAttribute('data-view'),true);
+});
+/* deep-link: #plan / #do */
+if(location.hash==='#do')setView('do',false);
+
+/* ---------- live timer (starts at 25:12) ---------- */
+var elapsed=25*60+12;
+function fmtE(s){
+  var h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  var mm=(m<10&&h?'0':'')+m,sx=(ss<10?'0':'')+ss;
+  return (h?h+':':'')+mm+':'+sx;
+}
+function tickClock(){
+  var t=fmtE(elapsed);
+  document.querySelectorAll('.js-elapsed').forEach(function(el){el.textContent=t;});
+}
+setInterval(function(){elapsed++;tickClock();},1000);
+tickClock();
+
+/* ---------- interactive ledger ticks ---------- */
+document.addEventListener('click',function(e){
+  var t=e.target.closest('.tick');
+  if(!t)return;
+  var row=t.closest('.drow,.trow');
+  if(!row||row.classList.contains('active'))return;   /* can't check the running task */
+  var done=row.classList.toggle('done');
+  t.setAttribute('aria-checked',done?'true':'false');
+  t.setAttribute('aria-label',done?'Mark not done':'Mark done');
+});
+
+/* ---------- disclosure: Home folder actually collapses ---------- */
+document.addEventListener('click',function(e){
+  var d=e.target.closest('.disc');
+  if(!d)return;
+  var row=d.closest('.trow');
+  var kidsId=d.getAttribute('data-toggle');
+  if(kidsId){
+    var open=row.classList.toggle('open');
+    document.getElementById(kidsId).classList.toggle('hidden',!open);
+    d.setAttribute('aria-label',(open?'Collapse ':'Expand ')+'Home');
+  }else{
+    /* other folders have no children in this mockup — just wink */
+    row.classList.toggle('open');
+    setTimeout(function(){row.classList.toggle('open');},350);
+  }
+});
+
+/* ---------- cosmetic: Recent pill toggles ---------- */
+document.getElementById('recentBtn').addEventListener('click',function(){
+  this.classList.toggle('on');
+});
+
+/* ---------- initial staggered reveal ---------- */
+stagger(document);
+</script>
+</body>
+</html>

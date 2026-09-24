@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taakl — Design concepts</title>
+<style>
+:root{--ink:#222;--muted:#777;--hair:#e5e5e2}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,'Times New Roman',serif;background:#faf9f7;color:var(--ink);padding:60px 24px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:30px;font-weight:normal;margin-bottom:8px}
+.sub{color:var(--muted);font-size:15px;margin-bottom:44px;font-style:italic}
+.concept{display:block;text-decoration:none;color:inherit;border-top:1px solid var(--hair);padding:26px 8px}
+.concept:last-of-type{border-bottom:1px solid var(--hair)}
+.concept:hover{background:#f2f0ec}
+.num{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-family:monospace}
+.concept h2{font-size:21px;font-weight:normal;margin:6px 0 6px}
+.concept p{font-size:14.5px;color:#555;line-height:1.5;max-width:600px}
+.note{margin-top:40px;font-size:13px;color:var(--muted);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Taakl — design concepts</h1>
+  <div class="sub">Four directions for the visual redesign. Each shows the Plan and Do views (switchable via the nav) with identical sample data, plus a live running session.</div>
+
+  <a class="concept" href="concept-1-ledger.html">
+    <div class="num">Concept 1</div>
+    <h2>Analog Ledger</h2>
+    <p>The review-screen mockup's aesthetic extended app-wide: warm paper ground, Fraunces serif headings, IBM Plex mono numerals, hairline rules, grain. A beautifully kept field notebook; the live session reads as red-ink annotation.</p>
+  </a>
+
+  <a class="concept" href="concept-2-quiet.html">
+    <div class="num">Concept 2</div>
+    <h2>Quiet Instrument</h2>
+    <p>The current design distilled further: near-monochrome warm white, structure from whitespace rather than boxes, one refined green accent, warm signal color reserved for the live timer. Instrument Sans + light tabular mono figures.</p>
+  </a>
+
+  <a class="concept" href="concept-3-console.html">
+    <div class="num">Concept 3</div>
+    <h2>Night Console</h2>
+    <p>A dark instrument panel for long sessions: warm charcoal, mono-forward chrome, amber interactions, phosphor green strictly for the running session, tmux-style status bar with keybinding hints. Professional equipment, low glare.</p>
+  </a>
+
+  <a class="concept" href="concept-4-studio.html">
+    <div class="num">Concept 4</div>
+    <h2>Soft Studio</h2>
+    <p>The structural departure: a left sidebar replaces the top nav, and every top-level project owns a muted hue used across dots, tags, and chips. Sage-mist ground, white rounded cards, Bricolage Grotesque headings. Calm, tactile, tidy.</p>
+  </a>
+
+  <div class="note">
+    In every concept: Plan/Do in the nav actually switch views, the elapsed timer ticks,
+    and checkboxes toggle done styling. Assistant and Review are inert.
+    Serve statically (e.g. <code>php -S localhost:8000</code> in <code>taakl-client/</code>)
+    and open <code>/mockups/design-concepts.html</code>, or open the files directly.
+  </div>
+</div>
+</body>
+</html>
