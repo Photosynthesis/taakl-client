@@ -127,6 +127,11 @@ themes and must stay design-neutral.
   index) and `test-drive.html`, an iframe harness that seeds sample tasks and
   drives views for headless screenshot testing
   (`?mode=plan|today|collapse|settings`).
+- **Mobile layouts must be verified with real device emulation**, not narrow
+  desktop windows: `python3 mockups/mobile-shot.py <url> <out.png> [setup-js]`
+  drives headless Chrome over CDP with iPhone metrics (390×844, DPR 3, touch,
+  mobile UA) and prints scroll-width/bar-height diagnostics. Narrow-window
+  screenshots miss real-viewport flex/grid wrapping issues.
 
 ## Code Conventions
 

@@ -3404,3 +3404,42 @@ color: var(--ink);
   margin-bottom: 20px;
   color: var(--ink-mid);
 }
+
+/* Mobile: structured two-line Today rows (default theme; themed skins ship their own copy) */
+@media (max-width: 650px){
+  /* Two-line row grid: [checkbox | title | star | fire] / [chip + meta] */
+  .today-task-content{ align-items: flex-start; }
+  .today-task-main{
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    column-gap: 8px;
+    row-gap: 4px;
+    align-items: start;
+  }
+  .today-task-main .task-checkbox{ grid-column: 1; grid-row: 1; margin: 2px 0 0; }
+  .today-task-main .task-title{
+    grid-column: 2;
+    grid-row: 1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .today-task-main .task-star{ grid-column: 3; grid-row: 1; }
+  .today-task-main .task-urgent{ grid-column: 4; grid-row: 1; }
+  .today-task-main .task-meta{
+    grid-column: 2 / -1;
+    grid-row: 2;
+    margin-left: 0;
+    white-space: normal;
+  }
+  .today-task-main .task-meta:empty{ display: none; }
+  /* Section headers: flex so long totals wrap cleanly instead of colliding */
+  .today-section-header{
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  .today-section-totals{ float: none; margin-left: auto; order: 8; }
+  .today-section-caret{ float: none; margin-left: 8px; order: 9; }
+}
