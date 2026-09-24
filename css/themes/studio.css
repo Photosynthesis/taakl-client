@@ -142,7 +142,7 @@
   --estimate-ink: rgba(34,51,44,0.44);
   --due-ink: #b57a76;
   /* Feedback banners */
-  --notice-bg: #e7ecf2;
+  --notice-bg: #f2f5ee;
   --success-bg: #e2ead9;
   --error-bg: #f2ddd6;
   --error-ink: #8a3d24;
@@ -204,7 +204,7 @@ body.theme-studio::after{
   border: 1px solid transparent;
   font-size: 14px;
 }
-.notice{ background: var(--notice-bg); border-color: var(--selection-border); color: var(--ink-mid); }
+.notice{ background: var(--notice-bg); border-color: #d9e1d1; color: var(--ink-mid); }
 .success{ background: var(--success-bg); border-color: var(--complete-border); color: #3d5a34; }
 .error{ background: var(--error-bg); border-color: var(--danger-soft); color: var(--error-ink); }
 
@@ -775,7 +775,7 @@ input.button-end-field::placeholder{ color: var(--ink-ghost); }
 
 /* Task rows — borderless, rounded project-tinted hover */
 .today-task-item{
-  padding: 9px 12px;
+  padding: 12px;
   margin: 0 6px;
   border-bottom: none;
   border-radius: 10px;
@@ -851,13 +851,17 @@ input.button-end-field::placeholder{ color: var(--ink-ghost); }
 }
 .today-task-item:hover .task-star{ opacity: 0.55; }
 .today-task-item:hover .task-urgent{ opacity: 0.45; }
-.task-star.starred{ color: var(--star-gold); opacity: 1 !important; }
+/* Starred is implied by the section, so stars stay hover-only — but gold when shown */
+.task-star.starred{ color: var(--star-gold); }
+.today-task-item:hover .task-star.starred{ opacity: 1; }
+/* Fire keeps signaling when toggled on */
 .task-urgent.urgent{ opacity: 1 !important; }
 .today-task-item:hover .task-star:hover{ opacity: 1; color: var(--star-gold); transform: scale(1.12); }
 .today-task-item:hover .task-urgent:hover{ opacity: 1; transform: scale(1.12); }
-/* Touch devices have no hover — keep unset toggles quietly visible */
+/* Touch devices have no hover — keep toggles quietly visible */
 @media (hover: none){
   .task-star{ opacity: 0.4; }
+  .task-star.starred{ opacity: 1; }
   .task-urgent{ opacity: 0.35; }
 }
 .today-play{
