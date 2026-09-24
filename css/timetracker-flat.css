@@ -96,8 +96,9 @@ div, a, input, select{
 
 
 h1{
-  margin-left:10px;
-  color: var(--ink-soft);
+  margin-left: 0;
+  color: var(--ink-muted);
+  letter-spacing: -0.01em;
 }
 
 a{
@@ -141,9 +142,10 @@ td.header{
 
 
 .button{
-  padding: 3 10 3 10px;
+  padding: 6px 14px;
   border: 1px solid var(--ink-ghost);
-  margin: 10px;
+  border-radius: 4px;
+  margin: 10px 10px 10px 0;
   background-color: var(--border);
   display: inline-block;
   cursor:pointer;
@@ -200,8 +202,9 @@ form{
 
 input[type=text], select, textarea{
   font-size: 1rem;
-  padding: 3 10 3 10px;
+  padding: 6px 10px;
   border: 1px solid var(--ink-ghost);
+  border-radius: 4px;
   display: inline-block;
   color: var(--ink-strong);
   /* width: 45%; */
@@ -525,7 +528,7 @@ table.datatable{
 #datatable tr:nth-child(odd) {background: var(--bg-alt)}
 
 #view-links{
-  margin: 15px;
+  margin: 12px 0 0;
   float: right;
 }
 .view-switch{
@@ -626,9 +629,22 @@ color: var(--ink);
   }
 }
 
-/* Layout */
-.view-container, #header, #feedback{
+/* Layout: centered content column */
+#view-area{
+  max-width: 980px;
+  margin: 0 auto;
+}
+#header{
+  max-width: 1036px;
+  margin: 0 auto;
+  padding: 26px 3% 4px;
+}
+.view-container{
   margin: 3%;
+}
+#feedback{
+  max-width: 924px;
+  margin: 14px auto;
 }
 
 
@@ -683,9 +699,15 @@ color: var(--ink);
 
 @media all and ( max-width: 650px ) {
 
+  #header{
+    padding: 14px 3% 2px;
+  }
+  #feedback{
+    margin: 10px 3%;
+  }
   #header h1{
     font-size: 1.5em;
-    margin-left: 10px;
+    margin-left: 0;
     margin-top: 0;
   }
 
@@ -754,7 +776,7 @@ color: var(--ink);
 .today-section {
   margin-bottom: 25px;
   border: 1px solid var(--hairline);
-  border-radius: 5px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
