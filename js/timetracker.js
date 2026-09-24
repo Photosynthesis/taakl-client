@@ -44,7 +44,8 @@ var defaultSettings = {
 // that overrides the design tokens (and any component rules) of the base
 // stylesheet. "default" means no extra stylesheet.
 var availableThemes = {
-  "default" : "Default"
+  "default" : "Default",
+  "studio" : "Studio"
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
