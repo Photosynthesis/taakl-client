@@ -359,6 +359,11 @@ input.button-end-field:active{
   cursor: pointer;
 }
 
+/* The middle-truncated path variant is only shown in the mobile collapsed bar */
+.session-path-short{
+  display: none;
+}
+
 #active-session.collapsed #current_duration{
   width: auto;
   margin: 0;
@@ -700,33 +705,49 @@ color: var(--ink);
 
 @media all and ( max-width: 650px ) {
 
-  /* Collapsed session bar: two rows — the title wraps full-width (clamped),
-     timer + End Session sit below. applySessionLayout() measures the bar and
-     offsets the content, so the wrapped height never overlaps the page. */
+  /* Collapsed session bar: two rows — middle-truncated title on top
+     (full-width, right padding clears the corner expand icon), big timer +
+     End Session button centered on the second row. applySessionLayout()
+     measures the bar and offsets the content, so the wrapped height never
+     overlaps the page. */
   #active-session.collapsed .centered-box{
     flex-wrap: wrap;
-    gap: 4px 10px;
+    gap: 6px 10px;
     min-height: 0;
-    padding: 9px 42px 9px 14px;
+    padding: 10px 14px;
+    align-items: center;
   }
   #active-session.collapsed #current-info{
     flex: 1 1 100%;
     white-space: normal;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     text-overflow: clip;
+    padding-right: 36px; /* clear the expand icon */
+  }
+  #active-session.collapsed .session-path-full{ display: none; }
+  #active-session.collapsed .session-path-short{ display: inline; }
+  #active-session.collapsed #session-collapse-btn{
+    top: 10px;
+    right: 10px;
+    -webkit-transform: none;
+    transform: none;
   }
   #active-session.collapsed #current_duration{
-    font-size: 20px;
+    flex: 1 1 auto;
+    font-size: 30px;
+    text-align: left;
+    padding-left: 4px;
   }
   #active-session.collapsed #session-buttons{
     margin-left: auto;
+    flex-shrink: 0;
   }
   #active-session.collapsed .session-end-btn{
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 10px 18px;
+    font-size: 14px;
   }
 
   #header{
@@ -1417,9 +1438,24 @@ color: var(--ink);
 }
 
 .node-view-breadcrumb {
-  font-size: 0.9em;
+  font-size: 0.95em;
   margin-bottom: 8px;
   color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.breadcrumb-item {
+  color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.breadcrumb-item:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  margin: 0 7px;
+  color: var(--ink-faint);
 }
 
 .node-view-title {
@@ -1812,10 +1848,34 @@ color: var(--ink);
 /* ###################### AIDA ASSISTANT VIEW ###################### */
 
 /* Layout — flex column filling available height */
+/* Assistant view: lock the whole page to the viewport so the header stays
+   pinned at the top and the input bar at the bottom; only #aida-messages
+   scrolls. Driven by the body.view-assistant class set in setView(). */
+body.view-assistant {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.view-assistant #container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+body.view-assistant #view-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 #assistantView-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 80px);
+  flex: 1 1 auto;
+  min-height: 0;
   padding-bottom: 0 !important;
 }
 
@@ -2313,10 +2373,6 @@ color: var(--ink);
 
 /* Mobile adjustments */
 @media all and (max-width: 650px) {
-  #assistantView-view {
-    height: calc(100vh - 60px);
-  }
-
   .aida-msg {
     max-width: 95%;
   }

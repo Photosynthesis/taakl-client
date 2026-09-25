@@ -50,7 +50,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260924i';
+var THEME_CSS_VERSION = '20260925b';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -676,7 +676,7 @@ function ttInitCore(){
 
    todayFolderAc.init();
 
-   setView('taskList');
+   setView('todayView');
 
    if(current_session){
       continueSession();
@@ -1441,6 +1441,9 @@ function setView(view){
     currentView = getViewObj(view);
     currentViewName = view;
     updateNavActive(view);
+
+    // Assistant view pins header/input to the viewport (see base stylesheet)
+    document.body.classList.toggle('view-assistant', view === 'assistantView');
 
     if (shouldAnimate && oldEl && newEl) {
       // Animated transition
@@ -3352,13 +3355,21 @@ treeView.saveNewTaskFromToday = function() {
   var parsed = parseEstimateFromInput(name);
   var dateParsed = parseDateFromInput(parsed.name);
 
-  createNode(parentId, {
+  var node = createNode(parentId, {
     name: dateParsed.name,
     type: 'task',
     estimate: parsed.estimate,
     due: dateParsed.due || '',
     starred: '1'
   });
+
+  // New tasks go to the top of the starred section, not the bottom
+  var starredOrder = todayView.getStarredOrder();
+  starredOrder.unshift(node.id);
+  setGlobalState('todayStarredOrder', starredOrder);
+  localStorage.todayStarredOrder = JSON.stringify(starredOrder); // mirror for rollback safety
+  ttSave();
+  if (nativeBridge.ready) nativeBridge.persist();
 
   input.value = '';
   todayFolderAc.reset();
@@ -3458,6 +3469,15 @@ function showNodeInSession() {
     pathStr += '<b>' + escapeHtml(current_node_path[i].name) + '</b>';
   }
 
+  // Middle-truncated variant for the mobile collapsed bar: keep the root and
+  // the task name, elide everything in between (stylesheet decides which
+  // variant is visible)
+  var shortPathStr = pathStr;
+  if (current_node_path.length > 2) {
+    shortPathStr = '<b>' + escapeHtml(current_node_path[0].name) + '</b> > … > ' +
+      '<b>' + escapeHtml(current_node_path[current_node_path.length - 1].name) + '</b>';
+  }
+
   // Build estimate display
   var estimateHtml = '';
   if (current_node.estimate && current_node.estimate > 0) {
@@ -3469,7 +3489,10 @@ function showNodeInSession() {
 
   var html = '<i id="session-collapse-btn" class="fa fa-compress" title="Collapse timer" onclick="toggleSessionCollapse()"></i>' +
   '<div class="centered-box">' +
-    '<div id="current-info" onclick="if(isSessionCollapsed())expandSessionTimer()">' + pathStr + '</div>' +
+    '<div id="current-info" onclick="if(isSessionCollapsed())expandSessionTimer()">' +
+      '<span class="session-path-full">' + pathStr + '</span>' +
+      '<span class="session-path-short">' + shortPathStr + '</span>' +
+    '</div>' +
     '<div id="current_duration"><span class="duration-idle">00:00:00</span></div>' +
     estimateHtml +
     '<div id="session-buttons">' +
@@ -5536,10 +5559,10 @@ todayView.getSectionTotals = function(tasks) {
 todayView.formatSectionTotals = function(totals) {
   var parts = [];
   if (totals.estimate > 0) {
-    parts.push("est " + prettyTime(totals.estimate));
+    parts.push("est " + prettyTimeShort(totals.estimate));
   }
   if (totals.logged > 0) {
-    parts.push("logged " + prettyTime(totals.logged));
+    parts.push("logged " + prettyTimeShort(totals.logged));
   }
   return parts.join(" | ");
 };

@@ -652,7 +652,7 @@ a.current-view{
   font-family: var(--font-display);
   letter-spacing: -0.01em;
 }
-.node-view-breadcrumb{ font-size: 0.86em; }
+.node-view-breadcrumb{ font-size: 0.95em; }
 .session-duration{ font-family: var(--font-mono); font-size: 0.95em; }
 .session-time-range, .session-date{ font-family: var(--font-mono); font-size: 0.92em; }
 
@@ -1176,8 +1176,9 @@ body.theme-studio #auth-modal input:focus{
   .today-section-caret{ float: none; margin-left: 8px; order: 9; }
 }
 
-/* Mobile collapsed session bar: compact timer/button so the title keeps room */
+/* Mobile collapsed session bar: sizes come from the base stylesheet; the
+   timer is re-bumped because the theme's all-widths 28px rule above outranks
+   the base mobile rule in the cascade. */
 @media (max-width: 650px){
-  #active-session.collapsed #current_duration{ font-size: 20px; }
-  #active-session.collapsed .session-end-btn{ padding: 6px 10px; font-size: 12px; }
+  #active-session.collapsed #current_duration{ font-size: 30px; }
 }

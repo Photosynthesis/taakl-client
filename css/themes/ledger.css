@@ -644,7 +644,7 @@ a.current-view:hover{ color: var(--ink); }
   font-weight: 520;
   letter-spacing: -0.01em;
 }
-.node-view-breadcrumb{ font-size: 0.86em; color: var(--ink-soft); }
+.node-view-breadcrumb{ font-size: 0.95em; color: var(--ink-soft); }
 .node-view-meta-label{
   font-family: var(--font-mono);
   font-size: 0.74em;
@@ -1234,12 +1234,13 @@ body.theme-ledger #auth-modal input:focus{
   .today-section-caret{ float: none; margin-left: 8px; order: 9; }
 }
 
-/* Mobile collapsed session bar: compact timer/button so the title keeps room */
+/* Mobile collapsed session bar: sizes come from the base stylesheet; keep
+   the ledger's mono caps tracking on the button. The timer is re-bumped here
+   because the theme's all-widths 24px rule above outranks the base mobile
+   rule in the cascade. */
 @media (max-width: 650px){
-  #active-session.collapsed #current_duration{ font-size: 19px; }
+  #active-session.collapsed #current_duration{ font-size: 30px; }
   #active-session.collapsed #session-buttons .session-end-btn{
-    padding: 6px 9px;
-    font-size: 10px;
     letter-spacing: 0.08em;
   }
 }
