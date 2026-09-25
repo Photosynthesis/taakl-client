@@ -1803,6 +1803,7 @@ treeView.hideCompleted = true;
 treeView.focusedNodeId = null;
 treeView.viewingNodeId = null; // null = full tree, set = node detail view
 treeView.originalValues = {}; // Store original values for change detection
+treeView.notesOriginal = {}; // Change-detection baselines for the notes editor
 treeView.updateScheduled = false; // Prevent redundant updates
 treeView._isRendering = false; // True during DOM rebuild (suppresses blur side-effects)
 treeView.recentFilter = false;   // whether Recent filter is active
@@ -1972,6 +1973,7 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
   title.className = 'node-view-title';
   title.value = node.name || '';
   title.placeholder = 'Untitled';
+  title.setAttribute('data-node-id', nodeId);
 
   function autoResizeTitle(el) {
     el.style.height = 'auto';
@@ -1984,11 +1986,16 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
   };
 
   title.onfocus = function() {
-    treeView.originalValues[nodeId] = {
-      name: node.name,
-      estimate: node.estimate || 0,
-      due: node.due || ''
-    };
+    // Keep an existing baseline: a sync re-render restores focus mid-edit,
+    // and resetting it to the half-typed value would make finalizeNode see
+    // "no change" on blur and never queue the update
+    if (!treeView.originalValues[nodeId]) {
+      treeView.originalValues[nodeId] = {
+        name: node.name,
+        estimate: node.estimate || 0,
+        due: node.due || ''
+      };
+    }
   };
 
   title.onblur = function() {
@@ -2243,14 +2250,28 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
   notesTextarea.className = 'node-view-notes-textarea';
   notesTextarea.value = node.notes || '';
   notesTextarea.placeholder = 'Add notes...';
+  notesTextarea.setAttribute('data-node-id', nodeId);
   notesTextarea.oninput = function() {
     this.style.height = 'auto';
     this.style.height = this.scrollHeight + 'px';
+    // Mirror live so a sync-triggered re-render rebuilds the textarea with
+    // the in-progress text instead of discarding it
+    node.notes = this.value;
+  };
+  notesTextarea.onfocus = function() {
+    // Baseline for change detection; keep an existing one across the
+    // focus loss/restore of a mid-edit re-render
+    if (treeView.notesOriginal[nodeId] === undefined) {
+      treeView.notesOriginal[nodeId] = node.notes || '';
+    }
   };
   notesTextarea.onblur = function() {
-    var val = this.value;
-    if (val !== (node.notes || '')) {
-      node.notes = val;
+    // Ignore blur caused by DOM rebuild in _doUpdate()
+    if (treeView._isRendering) return;
+
+    var original = treeView.notesOriginal[nodeId];
+    delete treeView.notesOriginal[nodeId];
+    if (original !== undefined && (node.notes || '') !== original) {
       ttSave();
       emitEvent('node', 'updated', nodeId);
     }
@@ -2339,6 +2360,25 @@ treeView._doUpdate = function() {
   var container = gebi('node-tree');
   if (!container) return;
 
+  // Capture in-progress edit state of the node-view title/notes editors so
+  // the rebuild can restore focus and cursor (their text survives via the
+  // live mirror into the node)
+  var restoreField = null;
+  var activeEl = document.activeElement;
+  if (activeEl && activeEl.tagName === 'TEXTAREA' && container.contains(activeEl)) {
+    var activeCls = activeEl.className || '';
+    var fieldSel = null;
+    if (activeCls.indexOf('node-view-title') !== -1) fieldSel = '.node-view-title';
+    else if (activeCls.indexOf('node-view-notes-textarea') !== -1) fieldSel = '.node-view-notes-textarea';
+    if (fieldSel) {
+      restoreField = {
+        selector: fieldSel,
+        selStart: activeEl.selectionStart,
+        selEnd: activeEl.selectionEnd
+      };
+    }
+  }
+
   treeView.closeNodeMenu();
   treeView._isRendering = true;
   container.innerHTML = '';
@@ -2423,6 +2463,20 @@ treeView._doUpdate = function() {
       if (notesTA) {
         notesTA.style.height = 'auto';
         notesTA.style.height = notesTA.scrollHeight + 'px';
+      }
+
+      // Restore focus to a title/notes editor that was active pre-rebuild
+      if (restoreField) {
+        var fieldEl = container.querySelector(restoreField.selector);
+        if (fieldEl) {
+          // The notes editor may be inside a collapsed (hidden) section
+          var notesContent = fieldEl.parentElement;
+          if (notesContent && notesContent.className.indexOf('node-view-notes-content') !== -1) {
+            notesContent.style.display = 'block';
+          }
+          fieldEl.focus();
+          fieldEl.setSelectionRange(restoreField.selStart, restoreField.selEnd);
+        }
       }
 
       // Restore focus
@@ -2655,12 +2709,17 @@ treeView.renderNode = function(container, nodeId, depth) {
   text.onfocus = function() {
     treeView.focusedNodeId = nodeId;
     row.classList.add('editing');
-    // Store original values for change detection (survives re-renders)
-    treeView.originalValues[nodeId] = {
-      name: node.name,
-      estimate: node.estimate || 0,
-      due: node.due || ''
-    };
+    // Store original values for change detection (survives re-renders).
+    // Keep an existing baseline: a sync re-render restores focus mid-edit,
+    // and resetting it to the half-typed value would make finalizeNode see
+    // "no change" on blur and never queue the update
+    if (!treeView.originalValues[nodeId]) {
+      treeView.originalValues[nodeId] = {
+        name: node.name,
+        estimate: node.estimate || 0,
+        due: node.due || ''
+      };
+    }
   };
 
   text.onblur = function() {
@@ -6078,6 +6137,17 @@ function synch() {
   // stay queued for the next tick instead of being wiped by the clear below
   var sentCount = synchQueue.queue.length;
 
+  // Re-snapshot queued payloads at send time: data was captured when the
+  // change was queued — for a brand-new task that is its first keystroke,
+  // and the user may have kept typing since
+  for (var i = 0; i < sentCount; i++) {
+    var queued = synchQueue.queue[i];
+    if (queued.action !== 'delete') {
+      var freshData = getItemData(queued.type, queued.uuid);
+      if (freshData) queued.data = freshData;
+    }
+  }
+
   var since = '1970-01-01 00:00:00';
   if (ttData.lastSyncTime) {
     since = moment.utc(ttData.lastSyncTime)
@@ -6117,7 +6187,12 @@ function synch() {
       syncLastBatchSig = batchSig;
 
       if (freshChanges) {
-        applyServerChanges(result.changes);
+        if (applyServerChanges(result.changes)) {
+          // Something was deferred (node mid-edit or superseded by a queued
+          // local change): clear the signature so a later identical batch
+          // is re-examined instead of treated as already applied
+          syncLastBatchSig = '';
+        }
         refreshSessionRefs();
         // Merge rootOrder: preserve local ordering, incorporate server additions/deletions
         if (result.rootOrder && Array.isArray(result.rootOrder)) {
@@ -6190,18 +6265,55 @@ function mergeRootOrder(localOrder, serverOrder, nodes) {
   return merged;
 }
 
-// Apply changes received from server
+// The node whose editor (tree row textarea, node-view title, or node-view
+// notes) currently has focus. Keystrokes are mirrored into the node live,
+// but the sync update is only queued on blur — so a pulled server change
+// must not overwrite the fields the open editor owns, or the in-progress
+// text gets wiped back to whatever the server last saw (classically: the
+// first letter of a brand-new task, pushed by the auto-sync tick).
+function activeEditNodeId() {
+  var el = document.activeElement;
+  if (!el || el.tagName !== 'TEXTAREA') return null;
+  var cls = el.className || '';
+  if (cls.indexOf('tree-text') === -1 &&
+      cls.indexOf('node-view-title') === -1 &&
+      cls.indexOf('node-view-notes-textarea') === -1) return null;
+  return el.getAttribute('data-node-id') || null;
+}
+
+// Apply changes received from server. Returns true if any change was
+// deferred (target node mid-edit, or superseded by a still-queued local
+// change) — the caller then clears the batch signature so the batch is
+// re-examined on a later tick instead of being treated as applied.
 function applyServerChanges(changes) {
+  var deferred = false;
+
+  // uuids with a local change still queued: that queued state is newer than
+  // anything this pull can echo back, so applying the echo would regress it
+  var queuedUuids = {};
+  for (var q = 0; q < synchQueue.queue.length; q++) {
+    queuedUuids[synchQueue.queue[q].uuid] = true;
+  }
+
   for (var i = 0; i < changes.length; i++) {
     var change = changes[i];
+
+    if (change.action !== 'delete' && queuedUuids[change.uuid]) {
+      console.log('[SYNC] Deferring server change (local change queued):', change.uuid);
+      deferred = true;
+      continue;
+    }
+
     console.log('[SYNC] Applying server change:', change);
 
     if (change.action === 'delete') {
       deleteItemLocally(change.type, change.uuid);
-    } else {
-      upsertItemLocally(change.type, change.uuid, change.data, change.parentUuid);
+    } else if (upsertItemLocally(change.type, change.uuid, change.data, change.parentUuid)) {
+      deferred = true;
     }
   }
+
+  return deferred;
 }
 
 // Delete item locally (used by sync)
@@ -6247,13 +6359,15 @@ function deleteNodeSessionLocally(sessionId) {
   }
 }
 
-// Upsert item locally (used by sync)
+// Upsert item locally (used by sync). Returns true if part of the change
+// was deferred because the target node is mid-edit.
 function upsertItemLocally(type, uuid, data, parentUuid) {
   if (type === 'node') {
-    upsertNodeLocally(uuid, data, parentUuid);
+    return upsertNodeLocally(uuid, data, parentUuid);
   } else if (type === 'node_session' && parentUuid) {
     upsertNodeSessionLocally(uuid, data, parentUuid);
   }
+  return false;
 }
 
 // Upsert node locally (used by sync for v2 structure)
@@ -6273,7 +6387,21 @@ function upsertNodeLocally(uuid, data, parentUuid) {
 
   // Update node properties
   var node = ttData.nodes[uuid];
-  if (data.name !== undefined) node.name = data.name;
+
+  // Fields owned by an open editor are not overwritten mid-edit: name,
+  // estimate and due belong to the name editors (estimate/due are parsed
+  // out of the name on blur), notes to the notes editor. Everything else
+  // still applies. Deferred = a skipped value actually differed.
+  var editing = !isNew && uuid === activeEditNodeId();
+  var deferred = false;
+  if (editing) {
+    deferred = (data.name !== undefined && data.name !== node.name) ||
+               (data.estimate !== undefined && data.estimate !== node.estimate) ||
+               (data.due !== undefined && (data.due || '') !== (node.due || '')) ||
+               (data.notes !== undefined && (data.notes || '') !== (node.notes || ''));
+  }
+
+  if (!editing && data.name !== undefined) node.name = data.name;
   if (data.type !== undefined) node.type = data.type;
   if (data.collapsed !== undefined) node.collapsed = data.collapsed;
   if (data.childOrder !== undefined) node.childOrder = data.childOrder;
@@ -6282,11 +6410,11 @@ function upsertNodeLocally(uuid, data, parentUuid) {
   if (data.status !== undefined) node.status = data.status;
   if (data.priority !== undefined) node.priority = data.priority;
   if (data.billable !== undefined) node.billable = data.billable;
-  if (data.estimate !== undefined) node.estimate = data.estimate;
-  if (data.due !== undefined) node.due = data.due;
+  if (!editing && data.estimate !== undefined) node.estimate = data.estimate;
+  if (!editing && data.due !== undefined) node.due = data.due;
   if (data.starred !== undefined) node.starred = data.starred;
   if (data.urgent !== undefined) node.urgent = data.urgent;
-  if (data.notes !== undefined) node.notes = data.notes;
+  if (!editing && data.notes !== undefined) node.notes = data.notes;
   if (data.sessions !== undefined) node.sessions = data.sessions;
   if (data.completed_at !== undefined) node.completed_at = data.completed_at;
 
@@ -6323,6 +6451,8 @@ function upsertNodeLocally(uuid, data, parentUuid) {
       }
     }
   }
+
+  return deferred;
 }
 
 // Upsert node session locally (used by sync for v2 structure)
