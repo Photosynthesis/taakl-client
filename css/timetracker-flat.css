@@ -3637,3 +3637,26 @@ body.view-assistant #view-area {
   .today-section-totals{ float: none; margin-left: auto; order: 8; }
   .today-section-caret{ float: none; margin-left: 8px; order: 9; }
 }
+
+/* ----------------------------------------------------------------
+   Mobile input-zoom guard (all themes). iOS/WebKit zooms the whole
+   page when a focused text control's font-size is under 16px — and
+   doesn't reliably zoom back, cutting off the right edge of the
+   screen. This is a device constraint, not a design choice, so it
+   lives here (structural, base-owned) and intentionally overrides
+   theme typography with !important. Themes may go bigger, never
+   smaller, on mobile text-entry controls.
+   ---------------------------------------------------------------- */
+@media all and ( max-width: 650px ) {
+  input[type=text],
+  input[type=search],
+  input[type=password],
+  input[type=email],
+  input[type=number],
+  input[type=url],
+  input:not([type]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
