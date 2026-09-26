@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taakl — Estimate progress concepts</title>
+<style>
+/* Static mockups: estimate vs tracked time on the running-task screen.
+   Colors mirror the default-theme tokens in css/timetracker-flat.css. */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Roboto',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#f7f7f7;color:#333;padding:40px 30px}
+h1{font-weight:400;font-size:26px;margin-bottom:6px}
+.sub{color:#888;font-size:14px;font-style:italic;margin-bottom:36px}
+.concept{margin-bottom:52px}
+.concept h2{font-weight:500;font-size:18px;margin-bottom:4px}
+.concept .desc{font-size:13.5px;color:#666;line-height:1.5;max-width:720px;margin-bottom:16px}
+.row{display:flex;gap:22px;flex-wrap:wrap}
+.state-label{text-align:center;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#aaa;margin-top:8px}
+
+/* Mini fullscreen-timer screen */
+.screen{width:340px;height:320px;background:#fff;border:1px solid #ddd;border-radius:6px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+.goal{position:absolute;top:0;left:0;right:0;padding:14px 30px 0;text-align:center;font-style:italic;color:#888;font-size:13px}
+.path{font-size:12px;color:#888;margin-bottom:10px;position:relative}
+.path b{color:#555}
+.timer{font-size:46px;font-weight:bold;color:#555;font-family:sans-serif;position:relative}
+.est{text-align:center;margin-top:10px;position:relative}
+.est .lbl{display:block;font-size:9px;color:#aaa;letter-spacing:.1em}
+.est .val{font-size:14px;color:#5a9}
+.subline{font-size:13px;margin-top:8px;position:relative}
+
+/* A — fill bar */
+.bar-wrap{width:200px;margin-top:16px;position:relative}
+.bar{height:6px;border-radius:3px;background:#f0f0f0;overflow:hidden;position:relative}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;background:#5a9;border-radius:3px}
+.bar .fill.warn{background:#f5a623}
+.bar .fill.over{background:#d9534f}
+.bar .tick{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;box-shadow:0 0 0 1px #bbb}
+.bar-cap{font-size:11px;color:#aab;margin-top:7px;text-align:center}
+
+/* B — timer as the indicator */
+.timer.ok{color:#555}
+.timer.warn{color:#f5a623}
+.timer.over{color:#d9534f}
+.subline.ok{color:#aab}
+.subline.warn{color:#f5a623}
+.subline.over{color:#d9534f}
+
+/* C — ring around the timer */
+.ring{width:170px;height:170px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;margin:6px 0 4px}
+.ring::before{content:'';position:absolute;inset:0;border-radius:50%;background:var(--g);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px))}
+.ring .timer{font-size:30px}
+.ring .rlbl{position:absolute;bottom:34px;font-size:10px;color:#aab}
+
+/* D — ambient fill */
+.screen.tank{--h:40%;--tint:rgba(85,170,153,.13);background:linear-gradient(to top,var(--tint) var(--h),#fff var(--h))}
+.screen.tank .level{position:absolute;left:0;right:0;bottom:var(--h);height:1px;background:rgba(85,170,153,.4)}
+.screen.tank.over{--tint:rgba(217,83,79,.10)}
+.screen.tank.over .level{background:rgba(217,83,79,.35)}
+
+/* E — collapsed banner strip */
+.banner{width:720px;background:#fff;border:1px solid #ddd;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.08);position:relative;overflow:hidden;padding:10px 48px 12px 14px;display:flex;align-items:center;gap:14px}
+.banner .bgoal{position:absolute;top:6px;left:48px;right:48px;text-align:center;font-style:italic;color:#888;font-size:13px}
+.banner .binfo{flex:1;font-size:14px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:24px}
+.banner .binfo b{color:#555}
+.banner .btime{font-size:26px;font-weight:300;color:#555;margin-top:22px}
+.banner .bbtn{border:1px solid #ccc;border-radius:3px;padding:6px 14px;font-size:12px;color:#666;margin-top:22px}
+.banner .strip{position:absolute;left:0;right:0;bottom:0;height:3px;background:#f0f0f0}
+.banner .strip .sfill{position:absolute;left:0;top:0;bottom:0;background:#5a9}
+.banner .strip .sfill.over{background:#d9534f}
+.banner .strip .stick{position:absolute;top:-1px;bottom:-1px;width:2px;background:#fff;box-shadow:0 0 0 1px #bbb}
+</style>
+</head>
+<body>
+<h1>Estimate vs. tracked time — running-task concepts</h1>
+<div class="sub">Task: Write chapter 3 · estimate 30m · "tracked" = all past sessions + the live one. Three states each: early (12m), near (27m), over (39m).</div>
+
+<!-- ============ A: FILL BAR ============ -->
+<div class="concept">
+<h2>A · Fill bar with estimate tick</h2>
+<div class="desc">A thin bar under the timer. While under estimate it fills green toward the right edge (the estimate). Past 100% the scale becomes the total tracked time: the fill turns red and a tick marks where the estimate sits — the distance past the tick <i>is</i> the overrun. Amber in the final stretch gives an early warning.</div>
+<div class="row">
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer">00:12:00</div>
+      <div class="bar-wrap"><div class="bar"><div class="fill" style="width:40%"></div></div><div class="bar-cap">12m of 30m</div></div>
+    </div>
+    <div class="state-label">early — 40%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer">00:27:00</div>
+      <div class="bar-wrap"><div class="bar"><div class="fill warn" style="width:90%"></div></div><div class="bar-cap">27m of 30m</div></div>
+    </div>
+    <div class="state-label">near — 90%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer">00:39:00</div>
+      <div class="bar-wrap"><div class="bar"><div class="fill over" style="width:100%"></div><div class="tick" style="left:77%"></div></div><div class="bar-cap">39m of 30m — 9m over</div></div>
+    </div>
+    <div class="state-label">over — 130%</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ B: TIMER AS INDICATOR ============ -->
+<div class="concept">
+<h2>B · The timer is the indicator</h2>
+<div class="desc">No extra chrome at all. The big duration shifts color — neutral, then amber inside the last 10%, then red once over — and a small line beneath translates it: time left, then time over. The screen stays as quiet as today; you read state from color alone at a glance.</div>
+<div class="row">
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer ok">00:12:00</div>
+      <div class="subline ok">18m left of 30m</div>
+    </div>
+    <div class="state-label">early — 40%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer warn">00:27:00</div>
+      <div class="subline warn">3m left of 30m</div>
+    </div>
+    <div class="state-label">near — 90%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer over">00:39:00</div>
+      <div class="subline over">9m over the 30m estimate</div>
+    </div>
+    <div class="state-label">over — 130%</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ C: RING ============ -->
+<div class="concept">
+<h2>C · Progress ring around the timer</h2>
+<div class="desc">The duration sits inside a ring that fills clockwise toward the estimate. Going over starts a second "lap": a red arc drawn on top of the completed green ring, so 130% reads as a full circle plus a red 30% arc. Very legible from across the room; the most visually assertive option.</div>
+<div class="row">
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="ring" style="--g:conic-gradient(#5a9 0 40%,#f0f0f0 40% 100%)">
+        <div><div class="timer">00:12:00</div></div>
+        <div class="rlbl">EST 30m</div>
+      </div>
+    </div>
+    <div class="state-label">early — 40%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="ring" style="--g:conic-gradient(#5a9 0 90%,#f0f0f0 90% 100%)">
+        <div><div class="timer">00:27:00</div></div>
+        <div class="rlbl">EST 30m</div>
+      </div>
+    </div>
+    <div class="state-label">near — 90%</div>
+  </div>
+  <div>
+    <div class="screen">
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="ring" style="--g:conic-gradient(#d9534f 0 30%,#5a9 30% 100%)">
+        <div><div class="timer over">00:39:00</div></div>
+        <div class="rlbl">9m OVER</div>
+      </div>
+    </div>
+    <div class="state-label">over — 130%</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ D: AMBIENT FILL ============ -->
+<div class="concept">
+<h2>D · Ambient fill (the screen is the tank)</h2>
+<div class="desc">The whole screen slowly floods with a faint green tint from the bottom, reaching the top exactly at the estimate; once over, the water turns a warm red wash. Zero added UI elements — pure peripheral awareness — but the least precise, and themes would need their own tint values.</div>
+<div class="row">
+  <div>
+    <div class="screen tank" style="--h:40%">
+      <div class="level"></div>
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer">00:12:00</div>
+      <div class="est"><span class="lbl">EST</span><span class="val">30 mins</span></div>
+    </div>
+    <div class="state-label">early — 40%</div>
+  </div>
+  <div>
+    <div class="screen tank" style="--h:90%">
+      <div class="level"></div>
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer">00:27:00</div>
+      <div class="est"><span class="lbl">EST</span><span class="val">30 mins</span></div>
+    </div>
+    <div class="state-label">near — 90%</div>
+  </div>
+  <div>
+    <div class="screen tank over" style="--h:100%">
+      <div class="level" style="display:none"></div>
+      <div class="goal">Finish a publishable draft by December</div>
+      <div class="path"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="timer over">00:39:00</div>
+      <div class="est"><span class="lbl">EST</span><span class="val" style="color:#d9534f">9m over</span></div>
+    </div>
+    <div class="state-label">over — 130%</div>
+  </div>
+</div>
+</div>
+
+<!-- ============ E: BANNER STRIP ============ -->
+<div class="concept">
+<h2>E · Collapsed banner: hairline strip</h2>
+<div class="desc">Whichever fullscreen concept wins, the collapsed bar gets the same signal as a 3px strip along its bottom edge — green filling toward the right edge, red past the estimate tick when over. Invisible until you look, readable from any window.</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+  <div>
+    <div class="banner">
+      <div class="bgoal">Finish a publishable draft by December</div>
+      <div class="binfo"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="btime">00:12:00</div>
+      <div class="bbtn">End Session</div>
+      <div class="strip"><div class="sfill" style="width:40%"></div></div>
+    </div>
+    <div class="state-label" style="text-align:left">early — 40%</div>
+  </div>
+  <div>
+    <div class="banner">
+      <div class="bgoal">Finish a publishable draft by December</div>
+      <div class="binfo"><b>Book project</b> &gt; <b>Write chapter 3</b></div>
+      <div class="btime">00:39:00</div>
+      <div class="bbtn">End Session</div>
+      <div class="strip"><div class="sfill over" style="width:100%"></div><div class="stick" style="left:77%"></div></div>
+    </div>
+    <div class="state-label" style="text-align:left">over — 130%</div>
+  </div>
+</div>
+</div>
+
+</body>
+</html>

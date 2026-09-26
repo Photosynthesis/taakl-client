@@ -94,6 +94,9 @@ var reminderDelay = 0;
 
 var estimateAlert90Triggered = false;
 var estimateAlert100Triggered = false;
+// Seconds already tracked on the running task before this session (completed
+// sessions only) — the estimate progress UI and alerts add the live clock
+var sessionTrackedBaseSecs = 0;
 
 var endPicker = '';
 var startPicker = '';
@@ -864,10 +867,11 @@ function incrementCurrentDuration() {
     fitDurationText(); // no-op while collapsed
     document.title = currentDuration + ' - Timetracker';
 
+    updateSessionProgress();
+
     // Check estimate thresholds if task has an estimate
     if(current_node && current_node.estimate && current_node.estimate > 0){
-      var existingTime = current_node.time || 0;
-      var totalTimeSpent = existingTime + currentDurationSeconds;
+      var totalTimeSpent = sessionTrackedBaseSecs + currentDurationSeconds;
       var percentUsed = (totalTimeSpent / current_node.estimate) * 100;
 
       // 90% warning ding
@@ -1807,6 +1811,7 @@ treeView.focusedNodeId = null;
 treeView.viewingNodeId = null; // null = full tree, set = node detail view
 treeView.originalValues = {}; // Store original values for change detection
 treeView.notesOriginal = {}; // Change-detection baselines for the notes editor
+treeView.goalOriginal = {}; // Change-detection baselines for the goal editor
 treeView.updateScheduled = false; // Prevent redundant updates
 treeView._isRendering = false; // True during DOM rebuild (suppresses blur side-effects)
 treeView.recentFilter = false;   // whether Recent filter is active
@@ -2016,6 +2021,52 @@ treeView._renderNodeViewHeader = function(container, nodeId) {
 
   // Auto-size after appending to DOM
   setTimeout(function() { autoResizeTitle(title); }, 0);
+
+  // Goal (editable) — a one-line articulation of what this task/project is for.
+  // Shown on the running-session timer via the nearest ancestor with a goal.
+  var goal = document.createElement('textarea');
+  goal.rows = 1;
+  goal.className = 'node-view-goal';
+  goal.value = node.goal || '';
+  goal.placeholder = 'Goal: what is the aim here?';
+  goal.setAttribute('data-node-id', nodeId);
+
+  goal.oninput = function() {
+    autoResizeTitle(this);
+    // Mirror live so a sync-triggered re-render rebuilds the editor with
+    // the in-progress text instead of discarding it
+    node.goal = this.value;
+  };
+
+  goal.onfocus = function() {
+    // Baseline for change detection; keep an existing one across the
+    // focus loss/restore of a mid-edit re-render
+    if (treeView.goalOriginal[nodeId] === undefined) {
+      treeView.goalOriginal[nodeId] = node.goal || '';
+    }
+  };
+
+  goal.onblur = function() {
+    // Ignore blur caused by DOM rebuild in _doUpdate()
+    if (treeView._isRendering) return;
+
+    var original = treeView.goalOriginal[nodeId];
+    delete treeView.goalOriginal[nodeId];
+    if (original !== undefined && (node.goal || '') !== original) {
+      ttSave();
+      emitEvent('node', 'updated', nodeId);
+    }
+  };
+
+  goal.onkeydown = function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      this.blur();
+    }
+  };
+
+  header.appendChild(goal);
+  setTimeout(function() { autoResizeTitle(goal); }, 0);
 
   // Metadata grid
   var meta = document.createElement('div');
@@ -2372,6 +2423,7 @@ treeView._doUpdate = function() {
     var activeCls = activeEl.className || '';
     var fieldSel = null;
     if (activeCls.indexOf('node-view-title') !== -1) fieldSel = '.node-view-title';
+    else if (activeCls.indexOf('node-view-goal') !== -1) fieldSel = '.node-view-goal';
     else if (activeCls.indexOf('node-view-notes-textarea') !== -1) fieldSel = '.node-view-notes-textarea';
     if (fieldSel) {
       restoreField = {
@@ -3478,16 +3530,30 @@ function showNodeInSession() {
       '<b>' + escapeHtml(current_node_path[current_node_path.length - 1].name) + '</b>';
   }
 
-  // Build estimate display
+  // Estimate progress module (bar + caption). Purely structural markup:
+  // geometry and state arrive via --est-fill/--est-tick custom properties and
+  // est-ok/est-warn/est-over classes on the overlay (updateSessionProgress)
   var estimateHtml = '';
   if (current_node.estimate && current_node.estimate > 0) {
-    estimateHtml = '<div id="session-estimate">' +
-      '<span class="estimate-label">EST</span>' +
-      '<span class="estimate-value">' + prettyTime(current_node.estimate) + '</span>' +
+    estimateHtml = '<div id="session-progress">' +
+      '<div class="sp-track"><div class="sp-fill"></div><div class="sp-tick"></div></div>' +
+      '<div class="sp-caption"></div>' +
       '</div>';
   }
 
-  var html = '<i id="session-collapse-btn" class="fa fa-compress" title="Collapse timer" onclick="toggleSessionCollapse()"></i>' +
+  // Goal reminder: the nearest goal walking up from the task through its
+  // ancestors — shown at the top of the timer as a reminder of the point
+  var goalText = '';
+  for (var g = current_node_path.length - 1; g >= 0; g--) {
+    if (current_node_path[g].goal && current_node_path[g].goal.trim()) {
+      goalText = current_node_path[g].goal.trim();
+      break;
+    }
+  }
+  var goalHtml = goalText ? '<div id="session-goal">' + escapeHtml(goalText) + '</div>' : '';
+
+  var html = goalHtml +
+  '<i id="session-collapse-btn" class="fa fa-compress" title="Collapse timer" onclick="toggleSessionCollapse()"></i>' +
   '<div class="centered-box">' +
     '<div id="current-info" onclick="if(isSessionCollapsed())expandSessionTimer()">' +
       '<span class="session-path-full">' + pathStr + '</span>' +
@@ -3505,9 +3571,56 @@ function showNodeInSession() {
   gebi('active-session').innerHTML = html;
   gebi('active-session').style.display = 'block';
 
+  sessionTrackedBaseSecs = calculateNodeTime(current_node.id);
+  currentDurationSeconds = startDate ? moment().diff(startDate) / 1000 : 0;
+  updateSessionProgress();
+
   applySessionLayout();
   setTimeout(fitDurationText, 10);
   window.addEventListener('resize', fitDurationText);
+}
+
+/**
+ * Reflect tracked-vs-estimate state on the running-session UI. Total tracked
+ * = completed sessions on the task + the live clock. Under the estimate the
+ * bar's scale is the estimate; over it the scale becomes the tracked total
+ * and the tick marks where the estimate sits. All visuals live in the
+ * stylesheet, driven by the state class and custom properties set here.
+ */
+function updateSessionProgress() {
+  var overlay = gebi('active-session');
+  if (!overlay || !current_node) return;
+
+  overlay.classList.remove('est-ok', 'est-warn', 'est-over');
+
+  var estimate = current_node.estimate || 0;
+  var progressEl = gebi('session-progress');
+  if (!(estimate > 0) || !progressEl) return;
+
+  var total = sessionTrackedBaseSecs + (currentDurationSeconds || 0);
+
+  var state = 'est-ok';
+  if (total >= estimate) state = 'est-over';
+  else if (total >= estimate * 0.9) state = 'est-warn';
+  overlay.classList.add(state);
+
+  var fillPct = 100, tickPct = 100;
+  if (total < estimate) {
+    fillPct = (total / estimate) * 100;
+  } else {
+    tickPct = (estimate / total) * 100;
+  }
+  overlay.style.setProperty('--est-fill', fillPct.toFixed(2) + '%');
+  overlay.style.setProperty('--est-tick', tickPct.toFixed(2) + '%');
+
+  var caption;
+  if (total < estimate) {
+    caption = prettyTimeShort(estimate - total) + ' left of ' + prettyTimeShort(estimate);
+  } else {
+    caption = prettyTimeShort(total - estimate) + ' over the ' + prettyTimeShort(estimate) + ' estimate';
+  }
+  var capEl = progressEl.querySelector('.sp-caption');
+  if (capEl) capEl.textContent = caption;
 }
 
 /**
@@ -3586,7 +3699,7 @@ function endNodeSession(markComplete) {
   console.log('[SESSION END] ttSave() completed');
 
   gebi('active-session').style.display = 'none';
-  gebi('active-session').classList.remove('collapsed');
+  gebi('active-session').classList.remove('collapsed', 'est-ok', 'est-warn', 'est-over');
   document.body.classList.remove('session-collapsed');
   gebi('container').style.paddingTop = '';
   document.title = 'Taakl';
@@ -3614,7 +3727,7 @@ function abortNodeSession(message) {
 
   var overlay = gebi('active-session');
   overlay.style.display = 'none';
-  overlay.classList.remove('collapsed');
+  overlay.classList.remove('collapsed', 'est-ok', 'est-warn', 'est-over');
   document.body.classList.remove('session-collapsed');
   gebi('container').style.paddingTop = '';
   document.title = 'Taakl';
@@ -6038,7 +6151,8 @@ function getNodeData(id) {
     parentId: node.parentId,
     childOrder: node.childOrder || [],
     collapsed: node.collapsed || false,
-    creation_date: node.creation_date || null
+    creation_date: node.creation_date || null,
+    goal: node.goal || ''
   };
 
   // Include task-specific fields
@@ -6300,6 +6414,7 @@ function activeEditNodeId() {
   var cls = el.className || '';
   if (cls.indexOf('tree-text') === -1 &&
       cls.indexOf('node-view-title') === -1 &&
+      cls.indexOf('node-view-goal') === -1 &&
       cls.indexOf('node-view-notes-textarea') === -1) return null;
   return el.getAttribute('data-node-id') || null;
 }
@@ -6421,10 +6536,12 @@ function upsertNodeLocally(uuid, data, parentUuid) {
     deferred = (data.name !== undefined && data.name !== node.name) ||
                (data.estimate !== undefined && data.estimate !== node.estimate) ||
                (data.due !== undefined && (data.due || '') !== (node.due || '')) ||
+               (data.goal !== undefined && (data.goal || '') !== (node.goal || '')) ||
                (data.notes !== undefined && (data.notes || '') !== (node.notes || ''));
   }
 
   if (!editing && data.name !== undefined) node.name = data.name;
+  if (!editing && data.goal !== undefined) node.goal = data.goal;
   if (data.type !== undefined) node.type = data.type;
   if (data.collapsed !== undefined) node.collapsed = data.collapsed;
   if (data.childOrder !== undefined) node.childOrder = data.childOrder;
