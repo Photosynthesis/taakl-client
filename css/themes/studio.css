@@ -681,7 +681,7 @@ a.current-view{
   background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  overflow: hidden;
+  /* no overflow:hidden — it would clip the folder autocomplete dropdown */
   box-shadow: 0 1px 2px rgba(34,51,44,0.04);
   margin-bottom: 20px;
   transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
@@ -694,7 +694,7 @@ a.current-view{
 input.button-end-field{
   width: 100%;
   border: 0;
-  border-radius: 0;
+  border-radius: 11px 0 0 11px;
   background: transparent;
   padding: 11px 14px;
   font-size: 14px;
@@ -709,7 +709,7 @@ input.button-end-field::placeholder{ color: var(--ink-ghost); }
   align-items: center;
   margin: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: 0 11px 11px 0;
   padding: 11px 20px;
   background-color: var(--ink-strong);
   color: #f2f4ee;
