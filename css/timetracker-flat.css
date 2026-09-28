@@ -1035,6 +1035,162 @@ color: var(--ink);
   opacity: 0.4;
 }
 
+/* Today starred dividers */
+.today-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 15px;
+  color: var(--ink-faint);
+  font-size: 0.8em;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.today-divider-line {
+  flex: 1;
+  border-top: 1px solid var(--hairline);
+}
+
+.today-divider-grip {
+  color: var(--ink-ghost);
+  cursor: grab;
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.today-divider-label {
+  cursor: text;
+  white-space: nowrap;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.today-divider-label-empty {
+  color: var(--ink-ghost);
+  font-style: italic;
+}
+
+.today-divider-delete {
+  color: var(--ink-ghost);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 1.2em;
+  line-height: 1;
+  visibility: hidden;
+}
+
+.today-divider:hover .today-divider-delete {
+  visibility: visible;
+}
+
+.today-divider-delete:hover {
+  color: var(--danger);
+}
+
+@media (hover: none) {
+  /* No hover on touch — keep the delete affordance reachable */
+  .today-divider-delete {
+    visibility: visible;
+  }
+}
+
+.today-divider-input {
+  color: var(--ink-mid);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 1px 6px;
+  max-width: 45%;
+}
+
+.today-divider.today-drop-above {
+  box-shadow: inset 0 2px 0 0 var(--accent-blue);
+}
+
+.today-divider.today-drop-below {
+  box-shadow: inset 0 -2px 0 0 var(--accent-blue);
+}
+
+.today-divider.today-dragging {
+  opacity: 0.4;
+}
+
+.today-add-divider {
+  float: right;
+  margin-left: 12px;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: var(--ink-faint);
+  text-decoration: none;
+}
+
+.today-add-divider:hover {
+  color: var(--ink-mid);
+}
+
+/* Today multi-select */
+.today-task-item.today-selected {
+  background: var(--selection-bg);
+  border-left: 3px solid var(--accent-blue);
+  padding-left: 12px;
+}
+
+.today-selection-chip {
+  float: right;
+  margin: 0 12px;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: var(--accent-blue);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.today-selection-chip .chip-x {
+  padding: 0 2px;
+}
+
+/* Block-drag handle: only on selected rows while in touch selection mode */
+.today-drag-handle {
+  display: none;
+  flex: 0 0 auto;
+  margin-right: 10px;
+  color: var(--ink-ghost);
+  cursor: grab;
+  touch-action: none;
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+.today-select-mode .today-task-item.today-selected .today-drag-handle {
+  display: block;
+}
+
+/* Stacked-cards ghost for block drags (offscreen; sampled by setDragImage) */
+.today-drag-ghost {
+  position: absolute;
+  top: -1000px;
+  left: -1000px;
+  pointer-events: none;
+}
+
+.today-drag-ghost-card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.9em;
+  color: var(--ink-mid);
+  white-space: nowrap;
+  box-shadow: 3px 3px 0 -1px var(--surface), 3px 4px 0 0 var(--hairline), 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.today-drag-ghost-badge {
+  color: var(--ink-faint);
+  font-size: 0.85em;
+  margin-left: 6px;
+}
+
 .today-task-completed .today-task-main {
   text-decoration: line-through;
   color: var(--ink-ghost);

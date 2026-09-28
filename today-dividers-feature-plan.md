@@ -1,6 +1,6 @@
 # Feature plan: draggable dividers in the Today starred section
 
-Status: proposed, not built. (2026-09-25)
+Status: implemented as planned. (built 2026-09-28; proposed 2026-09-25)
 
 ## What it is
 

@@ -1,6 +1,6 @@
 # Feature plan: multi-select + block drag in the Today view
 
-Status: proposed, not built. (2026-09-25)
+Status: implemented as planned, together with the dividers plan. (built 2026-09-28; proposed 2026-09-25)
 
 ## What it is
 

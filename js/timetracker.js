@@ -5457,6 +5457,7 @@ todayView.show = function(){
   // Initialize task containers
   todayView.morningTasks = [];
   todayView.starredTasks = [];
+  todayView.starredEntries = [];
   todayView.eveningTasks = [];
 
   // Register event watchers
@@ -5480,6 +5481,11 @@ todayView.show = function(){
 
   var dateEl = gebi('today-date');
   if (dateEl) dateEl.textContent = moment().format('dddd, MMMM D');
+
+  // Selection: Esc and clicks on empty space clear the current range
+  document.addEventListener('keydown', todayView._onKeyDown);
+  var viewEl = gebi('todayView-view');
+  if (viewEl) viewEl.addEventListener('click', todayView._onBgClick);
 
   todayView.update();
 };
@@ -5513,6 +5519,10 @@ todayView.applySectionCollapse = function(){
 
 todayView.hide = function(){
   removeEventWatchers('todayView');
+  document.removeEventListener('keydown', todayView._onKeyDown);
+  var viewEl = gebi('todayView-view');
+  if (viewEl) viewEl.removeEventListener('click', todayView._onBgClick);
+  todayView.clearSelection();
 };
 
 todayView.filter = function(){
@@ -5613,6 +5623,9 @@ todayView.createTaskElement = function(task){
 
   taskDiv.innerHTML =
     "<div class='today-task-content' ondblclick=\"" + editHandler + "\">" +
+      // Handle shown only on selected rows in touch selection mode: on iOS the
+      // row's own long-press is consumed by selection, so block drags start here
+      "<span class='today-drag-handle' draggable='true' title='Drag'>&#8801;</span>" +
       "<div class='today-task-main'>" +
         checkCompleted + " " + starIcon + " " + urgentIcon + " <span class='task-title'>" + escapeHtml(task.truncateName) + "</span>" +
         "<span class='task-meta'>" + task.metaParentage + task.metaPrettyTime + (task.metaEstimate || '') + "</span>" +
@@ -5691,7 +5704,7 @@ todayView.refresh = function(){
   starredContainer.innerHTML = "";
   eveningContainer.innerHTML = "";
 
-  // Apply saved starred order
+  // Apply saved starred order (builds the mixed task/divider entry list)
   todayView.applyStarredOrder();
 
   // Render morning tasks
@@ -5699,10 +5712,18 @@ todayView.refresh = function(){
     morningContainer.appendChild(todayView.createTaskElement(task));
   });
 
-  // Render starred tasks with drag-and-drop
-  todayView.starredTasks.forEach(function(task){
-    var el = todayView.createTaskElement(task);
-    todayView.addDragHandlers(el, task.id, starredContainer);
+  // Render starred entries (tasks + dividers) with drag-and-drop
+  todayView.starredEntries.forEach(function(entry){
+    var el, id;
+    if (entry.divider) {
+      el = todayView.createDividerElement(entry);
+      id = entry.divider;
+    } else {
+      el = todayView.createTaskElement(entry.task);
+      id = entry.task.id;
+      todayView.addSelectionHandlers(el, id);
+    }
+    todayView.addDragHandlers(el, id, starredContainer);
     starredContainer.appendChild(el);
   });
 
@@ -5722,18 +5743,20 @@ todayView.refresh = function(){
   // Show/hide sections based on content
   gebi("today-morning-section").style.display =
     todayView.morningTasks.length > 0 ? "block" : "none";
+  // Starred stays visible while dividers remain (so they can still be deleted)
   gebi("today-starred-section").style.display =
-    todayView.starredTasks.length > 0 ? "block" : "none";
+    todayView.starredEntries.length > 0 ? "block" : "none";
   gebi("today-evening-section").style.display =
     todayView.eveningTasks.length > 0 ? "block" : "none";
 
   // Show "no tasks" message if all sections empty
-  var totalTasks = todayView.morningTasks.length +
-                   todayView.starredTasks.length +
-                   todayView.eveningTasks.length;
-  noTasksMsg.style.display = (totalTasks === 0) ? "block" : "none";
+  var totalRows = todayView.morningTasks.length +
+                  todayView.starredEntries.length +
+                  todayView.eveningTasks.length;
+  noTasksMsg.style.display = (totalRows === 0) ? "block" : "none";
 
   todayView.applySectionCollapse();
+  todayView.updateSelectionUI();
 };
 
 // --- Starred section ordering ---
@@ -5747,8 +5770,35 @@ todayView.getStarredOrder = function() {
   } catch(e) { return []; }
 };
 
+// In-memory ordered mixed list: { task: <node> } and { divider: id, label: '' }
+// entries. starredTasks stays derived from it so totals and other consumers
+// keep working untouched. Saved form: task uuid strings + {divider,label}
+// objects in globalState.todayStarredOrder (opaque to the server — no
+// server change; an old client reordering would drop divider entries).
+todayView.starredEntries = [];
+
+todayView.entryId = function(entry) {
+  return entry.divider ? entry.divider : entry.task.id;
+};
+
+todayView.findEntryIndex = function(id) {
+  for (var i = 0; i < todayView.starredEntries.length; i++) {
+    if (todayView.entryId(todayView.starredEntries[i]) === id) return i;
+  }
+  return -1;
+};
+
+todayView.deriveStarredTasks = function() {
+  todayView.starredTasks = [];
+  todayView.starredEntries.forEach(function(e) {
+    if (e.task) todayView.starredTasks.push(e.task);
+  });
+};
+
 todayView.saveStarredOrder = function() {
-  var order = todayView.starredTasks.map(function(t) { return t.id; });
+  var order = todayView.starredEntries.map(function(e) {
+    return e.divider ? { divider: e.divider, label: e.label || '' } : e.task.id;
+  });
   setGlobalState('todayStarredOrder', order);
   localStorage.todayStarredOrder = JSON.stringify(order); // mirror for rollback safety
   ttSave();
@@ -5757,44 +5807,314 @@ todayView.saveStarredOrder = function() {
 
 todayView.applyStarredOrder = function() {
   var savedOrder = todayView.getStarredOrder();
-  if (savedOrder.length === 0) return;
 
   // Build a map of current starred tasks
   var taskMap = {};
   todayView.starredTasks.forEach(function(t) { taskMap[t.id] = t; });
 
-  var ordered = [];
-  // First add tasks in saved order (if they still exist in starred)
-  savedOrder.forEach(function(id) {
-    if (taskMap[id]) {
-      ordered.push(taskMap[id]);
-      delete taskMap[id];
+  var entries = [];
+  // Walk the saved mixed array: task ids resolve if still starred, divider
+  // objects pass through verbatim, stale/unknown ids drop
+  savedOrder.forEach(function(item) {
+    if (typeof item === 'string') {
+      if (taskMap[item]) {
+        entries.push({ task: taskMap[item] });
+        delete taskMap[item];
+      }
+    } else if (item && item.divider) {
+      entries.push({ divider: item.divider, label: item.label || '' });
     }
   });
-  // Then append any new starred tasks not in saved order
+  // Then append any newly-starred tasks not in the saved order
   for (var id in taskMap) {
-    ordered.push(taskMap[id]);
+    entries.push({ task: taskMap[id] });
   }
 
-  todayView.starredTasks = ordered;
+  todayView.starredEntries = entries;
+  todayView.deriveStarredTasks();
 };
 
-// --- Starred drag and drop ---
+// --- Dividers ---
+
+todayView.addDivider = function(ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  // Insert at the top of the section; the user drags it into place
+  todayView.starredEntries.unshift({ divider: 'd-' + newId(), label: '' });
+  todayView.saveStarredOrder();
+  // Un-collapse so the new divider is visible
+  var map = todayView.getCollapsedSections();
+  if (map.starred) {
+    map.starred = false;
+    localStorage.todayCollapsedSections = JSON.stringify(map);
+  }
+  todayView.refresh();
+};
+
+todayView.createDividerElement = function(entry) {
+  var div = document.createElement('div');
+  div.className = 'today-divider';
+  div.setAttribute('data-entry-id', entry.divider);
+  var labelClass = entry.label ? 'today-divider-label' : 'today-divider-label today-divider-label-empty';
+  var labelText = entry.label ? escapeHtml(entry.label) : 'label';
+  div.innerHTML =
+    "<span class='today-divider-grip'>&#8801;</span>" +
+    "<span class='today-divider-line'></span>" +
+    "<span class='" + labelClass + "' onclick=\"todayView.editDividerLabel('" + entry.divider + "', event)\">" + labelText + "</span>" +
+    "<span class='today-divider-line'></span>" +
+    "<span class='today-divider-delete' title='Remove divider' onclick=\"todayView.deleteDivider('" + entry.divider + "', event)\">&times;</span>";
+  return div;
+};
+
+todayView.editDividerLabel = function(dividerId, ev) {
+  if (ev) ev.stopPropagation();
+  var idx = todayView.findEntryIndex(dividerId);
+  if (idx === -1) return;
+  var entry = todayView.starredEntries[idx];
+  var row = document.querySelector(".today-divider[data-entry-id='" + dividerId + "']");
+  if (!row) return;
+  // Row drag would hijack text selection inside the input; refresh restores it
+  row.setAttribute('draggable', 'false');
+  var labelEl = row.querySelector('.today-divider-label');
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'today-divider-input';
+  input.value = entry.label || '';
+  labelEl.parentNode.replaceChild(input, labelEl);
+  input.focus();
+  input.select();
+  var done = false;
+  function commit(save) {
+    if (done) return;
+    done = true;
+    if (save) {
+      entry.label = input.value.replace(/^\s+|\s+$/g, '');
+      todayView.saveStarredOrder();
+    }
+    todayView.refresh();
+  }
+  input.onblur = function() { commit(true); };
+  input.onkeydown = function(e) {
+    if (e.keyCode === 13) { e.preventDefault(); commit(true); }
+    else if (e.keyCode === 27) { e.stopPropagation(); commit(false); }
+  };
+};
+
+todayView.deleteDivider = function(dividerId, ev) {
+  if (ev) ev.stopPropagation();
+  var idx = todayView.findEntryIndex(dividerId);
+  if (idx === -1) return;
+  todayView.starredEntries.splice(idx, 1);
+  todayView.saveStarredOrder();
+  todayView.refresh();
+};
+
+// --- Multi-select (contiguous by construction: the selection is the range of
+// task rows between anchor and head, re-derived from the current order) ---
+
+todayView.selection = { anchorId: null, headId: null };
+todayView.touchSelectMode = false;    // entered via long-press; shows drag handles
+todayView.suppressNextClick = false;  // swallow the click iOS fires after a long-press
+
+todayView.clearSelection = function() {
+  todayView.selection.anchorId = null;
+  todayView.selection.headId = null;
+  todayView.touchSelectMode = false;
+  todayView.updateSelectionUI();
+};
+
+// Ordered ids of the selected range. Ranges span task rows only, so a range
+// across a divider picks up just the tasks. If either endpoint vanished
+// (unstarred/completed elsewhere) the selection clears itself.
+todayView.getSelectedIds = function() {
+  var sel = todayView.selection;
+  if (!sel.anchorId || !sel.headId) return [];
+  var taskIds = [];
+  todayView.starredEntries.forEach(function(e) {
+    if (e.task) taskIds.push(e.task.id);
+  });
+  var a = taskIds.indexOf(sel.anchorId);
+  var b = taskIds.indexOf(sel.headId);
+  if (a === -1 || b === -1) {
+    sel.anchorId = null;
+    sel.headId = null;
+    todayView.touchSelectMode = false;
+    return [];
+  }
+  return taskIds.slice(Math.min(a, b), Math.max(a, b) + 1);
+};
+
+todayView.updateSelectionUI = function() {
+  var container = gebi('today-starred-tasks');
+  if (!container) return;
+  var ids = todayView.getSelectedIds();
+  var map = {};
+  ids.forEach(function(id) { map[id] = true; });
+  container.classList.toggle('today-select-mode', todayView.touchSelectMode && ids.length > 0);
+  var rows = container.querySelectorAll('.today-task-item');
+  for (var i = 0; i < rows.length; i++) {
+    var selected = !!map[rows[i].getAttribute('data-task-id')];
+    rows[i].classList.toggle('today-selected', selected);
+    // In touch select mode the row body must not start a native drag (its
+    // long-press belongs to selection); the visible handle drags instead
+    rows[i].setAttribute('draggable', (todayView.touchSelectMode && selected) ? 'false' : 'true');
+  }
+  var chip = gebi('today-selection-chip');
+  if (chip) {
+    if (ids.length > 0) {
+      chip.style.display = '';
+      chip.innerHTML = ids.length + ' selected <span class="chip-x">&times;</span>';
+    } else {
+      chip.style.display = 'none';
+    }
+  }
+};
+
+todayView.chipClick = function(ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  todayView.clearSelection();
+};
+
+todayView.addSelectionHandlers = function(el, taskId) {
+  // Desktop: click selects / re-anchors; shift-click moves the head
+  el.addEventListener('click', function(e) {
+    if (todayView.suppressNextClick) {
+      todayView.suppressNextClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    // Controls keep their own meanings — selection binds on the row background
+    var t = e.target;
+    if (t.classList && (t.classList.contains('task-checkbox') ||
+        t.classList.contains('task-star') ||
+        t.classList.contains('task-urgent') ||
+        t.classList.contains('today-play') ||
+        t.classList.contains('today-drag-handle'))) return;
+
+    var sel = todayView.selection;
+    var ids = todayView.getSelectedIds();
+
+    if (todayView.touchSelectMode && ids.length > 0) {
+      // Touch mode: tap inside the range shrinks to the tapped row, tap on
+      // another row extends the range to it
+      if (ids.indexOf(taskId) !== -1) {
+        sel.anchorId = taskId;
+        sel.headId = taskId;
+      } else {
+        sel.headId = taskId;
+      }
+      todayView.updateSelectionUI();
+      return;
+    }
+
+    if (e.shiftKey && sel.anchorId) {
+      sel.headId = taskId;
+    } else if (ids.length === 1 && ids[0] === taskId) {
+      todayView.clearSelection();
+      return;
+    } else {
+      sel.anchorId = taskId;
+      sel.headId = taskId;
+    }
+    todayView.updateSelectionUI();
+  });
+
+  // Shift-click must not select text
+  el.addEventListener('mousedown', function(e) {
+    if (e.shiftKey) e.preventDefault();
+  });
+
+  // Mobile: long-press with no movement enters selection mode
+  el.addEventListener('touchstart', function(e) {
+    // Selected rows drag via their handle; don't re-arm the long-press
+    if (todayView.touchSelectMode && todayView.getSelectedIds().indexOf(taskId) !== -1) return;
+    var touch = e.touches[0];
+    var startX = touch.clientX, startY = touch.clientY;
+    var timer = setTimeout(function() {
+      timer = null;
+      todayView.touchSelectMode = true;
+      todayView.selection.anchorId = taskId;
+      todayView.selection.headId = taskId;
+      todayView.suppressNextClick = true; // iOS fires a click on release
+      setTimeout(function() { todayView.suppressNextClick = false; }, 600);
+      if (navigator.vibrate) navigator.vibrate(15);
+      todayView.updateSelectionUI();
+    }, 450);
+    function cancel() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', cancel);
+      el.removeEventListener('touchcancel', cancel);
+    }
+    function onMove(ev2) {
+      var t2 = ev2.touches[0];
+      // Cancel on movement so scrolling still works
+      if (Math.abs(t2.clientX - startX) > 10 || Math.abs(t2.clientY - startY) > 10) cancel();
+    }
+    el.addEventListener('touchmove', onMove);
+    el.addEventListener('touchend', cancel);
+    el.addEventListener('touchcancel', cancel);
+  });
+};
+
+todayView._isInRow = function(node) {
+  while (node && node !== document) {
+    if (node.classList && (node.classList.contains('today-task-item') ||
+        node.classList.contains('today-divider') ||
+        node.classList.contains('today-selection-chip'))) return true;
+    node = node.parentNode;
+  }
+  return false;
+};
+
+todayView._onBgClick = function(e) {
+  if (todayView.getSelectedIds().length === 0) return;
+  if (todayView._isInRow(e.target)) return;
+  todayView.clearSelection();
+};
+
+todayView._onKeyDown = function(e) {
+  if (e.keyCode === 27 && todayView.getSelectedIds().length) {
+    todayView.clearSelection();
+  }
+};
+
+// --- Starred drag and drop (rows are tasks or dividers; a drag carries one
+// entry or the selected block) ---
 todayView.dragState = null;
 
-todayView.addDragHandlers = function(el, taskId, container) {
+todayView.rowFor = function(id, container) {
+  return container.querySelector("[data-task-id='" + id + "'], [data-entry-id='" + id + "']");
+};
+
+todayView.addDragHandlers = function(el, entryId, container) {
   el.setAttribute('draggable', 'true');
   el.style.cursor = 'grab';
 
   el.ondragstart = function(e) {
-    todayView.dragState = { taskId: taskId };
+    var selectedIds = todayView.getSelectedIds();
+    if (selectedIds.length > 1 && selectedIds.indexOf(entryId) !== -1) {
+      // Dragging from inside the selection moves the whole block
+      todayView.dragState = { entryIds: selectedIds };
+      todayView.setBlockDragImage(e, selectedIds);
+    } else {
+      if (selectedIds.length) todayView.clearSelection();
+      todayView.dragState = { entryIds: [entryId] };
+    }
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', taskId);
-    setTimeout(function() { el.classList.add('today-dragging'); }, 0);
+    e.dataTransfer.setData('text/plain', entryId);
+    var ids = todayView.dragState.entryIds;
+    setTimeout(function() {
+      ids.forEach(function(id) {
+        var row = todayView.rowFor(id, container);
+        if (row) row.classList.add('today-dragging');
+      });
+    }, 0);
   };
 
   el.ondragend = function() {
-    el.classList.remove('today-dragging');
+    var rows = container.querySelectorAll('.today-dragging');
+    for (var i = 0; i < rows.length; i++) rows[i].classList.remove('today-dragging');
     todayView.dragClearIndicators(container);
     todayView.dragState = null;
   };
@@ -5824,35 +6144,62 @@ todayView.addDragHandlers = function(el, taskId, container) {
     e.preventDefault();
     if (!todayView.dragState) return;
 
-    var dragId = todayView.dragState.taskId;
-    var dropId = taskId;
-    if (dragId === dropId) return;
+    var dragIds = todayView.dragState.entryIds;
+    todayView.dragState = null;
+    if (dragIds.indexOf(entryId) !== -1) return; // dropped onto itself / the block
 
     var rect = el.getBoundingClientRect();
     var above = (e.clientY - rect.top) < rect.height / 2;
 
-    // Reorder the starredTasks array
-    var dragIdx = -1, dropIdx = -1;
-    for (var i = 0; i < todayView.starredTasks.length; i++) {
-      if (todayView.starredTasks[i].id === dragId) dragIdx = i;
-      if (todayView.starredTasks[i].id === dropId) dropIdx = i;
+    // Splice the dragged entries out (preserving relative order), then insert
+    // the block at the target position on the post-removal array
+    var entries = todayView.starredEntries;
+    var dragged = [], remaining = [];
+    for (var i = 0; i < entries.length; i++) {
+      if (dragIds.indexOf(todayView.entryId(entries[i])) !== -1) dragged.push(entries[i]);
+      else remaining.push(entries[i]);
     }
-    if (dragIdx === -1 || dropIdx === -1) return;
+    if (dragged.length === 0) return;
 
-    var dragged = todayView.starredTasks.splice(dragIdx, 1)[0];
-    dropIdx = above
-      ? todayView.starredTasks.indexOf(todayView.starredTasks.filter(function(t){ return t.id === dropId; })[0])
-      : todayView.starredTasks.indexOf(todayView.starredTasks.filter(function(t){ return t.id === dropId; })[0]) + 1;
-    todayView.starredTasks.splice(dropIdx, 0, dragged);
+    var dropIdx = -1;
+    for (var j = 0; j < remaining.length; j++) {
+      if (todayView.entryId(remaining[j]) === entryId) { dropIdx = j; break; }
+    }
+    if (dropIdx === -1) return;
+    var insertAt = above ? dropIdx : dropIdx + 1;
+    Array.prototype.splice.apply(remaining, [insertAt, 0].concat(dragged));
 
-    todayView.saveStarredOrder();
-    todayView.dragState = null;
+    // Skip the save on no-op positions (e.g. dropping just outside the block)
+    var changed = false;
+    for (var k = 0; k < entries.length; k++) {
+      if (todayView.entryId(entries[k]) !== todayView.entryId(remaining[k])) { changed = true; break; }
+    }
+
+    todayView.starredEntries = remaining;
+    todayView.deriveStarredTasks();
+    if (changed) todayView.saveStarredOrder();
     todayView.refresh();
   };
 };
 
+// Stacked-cards ghost for block drags: first row's name + "+ n more"
+todayView.setBlockDragImage = function(e, ids) {
+  if (!e.dataTransfer || !e.dataTransfer.setDragImage) return;
+  var first = getNode(ids[0]);
+  var ghost = document.createElement('div');
+  ghost.className = 'today-drag-ghost';
+  ghost.innerHTML =
+    "<div class='today-drag-ghost-card'>" + escapeHtml(truncate(first ? first.name : '', 40)) +
+    "<span class='today-drag-ghost-badge'>+" + (ids.length - 1) + " more</span></div>";
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 12, 12);
+  setTimeout(function() {
+    if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+  }, 0);
+};
+
 todayView.dragClearIndicators = function(container) {
-  var items = container.querySelectorAll('.today-task-item');
+  var items = container.querySelectorAll('.today-task-item, .today-divider');
   for (var i = 0; i < items.length; i++) {
     items[i].classList.remove('today-drop-above', 'today-drop-below');
   }
