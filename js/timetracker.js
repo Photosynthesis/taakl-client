@@ -50,7 +50,7 @@ var availableThemes = {
 };
 
 // Bump when any theme stylesheet changes (busts the host's 30-day asset cache)
-var THEME_CSS_VERSION = '20260927a';
+var THEME_CSS_VERSION = '20260928a';
 
 // Load/unload the theme stylesheet and set a theme-<name> class on <body>.
 // Mirrors the choice into localStorage.ttTheme so the inline <head> script in
@@ -5855,7 +5855,7 @@ todayView.createDividerElement = function(entry) {
   div.className = 'today-divider';
   div.setAttribute('data-entry-id', entry.divider);
   var labelClass = entry.label ? 'today-divider-label' : 'today-divider-label today-divider-label-empty';
-  var labelText = entry.label ? escapeHtml(entry.label) : 'label';
+  var labelText = entry.label ? escapeHtml(entry.label) : '&lowast;'; // bare mark: dividers work unlabeled
   div.innerHTML =
     "<span class='today-divider-grip'>&#8801;</span>" +
     "<span class='today-divider-line'></span>" +

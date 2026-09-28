@@ -782,6 +782,13 @@ input.button-end-field::placeholder{ color: var(--ink-ghost); }
   transition: background-color 0.13s var(--ease);
 }
 .today-task-item:last-child{ margin-bottom: 2px; }
+/* Dividers: borderless like the task rows, aligned to their inset
+   (padding tuned to match row height) */
+.today-divider{
+  padding: 14px 12px;
+  margin: 0 6px;
+  border-bottom: none;
+}
 .today-task-item:hover{
   background: var(--bg-subtle);
   background: color-mix(in srgb, var(--node-color, #7f8b7f) 10%, transparent);

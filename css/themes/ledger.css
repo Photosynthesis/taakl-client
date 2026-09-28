@@ -758,6 +758,11 @@ input.button-end-field::placeholder{ color: var(--ink-faint); font-style: italic
   transition: background-color 0.12s var(--ease);
 }
 .today-task-item:hover{ background: var(--bg-subtle); }
+/* Dividers rule like the task rows (padding tuned to match row height) */
+.today-divider{
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
 /* Row layout: tick · title · (hover) star/fire · → chip + times right */
 .today-task-main{
   display: flex;

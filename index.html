@@ -6,7 +6,7 @@
 
     <!-- link rel="stylesheet" href="css/timetracker.css" type="text/css" -->
     <!-- ?v= busts the host's 30-day asset cache; bump it when this file's assets change -->
-    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260928a" type="text/css">
+    <link rel="stylesheet" href="css/timetracker-flat.css?v=20260928b" type="text/css">
     <link rel="stylesheet" href="css/font-awesome.min.css" type="text/css">
     <link rel="stylesheet" href="css/pikaday.css">
     <!-- Theme stylesheet: applied pre-paint from the localStorage.ttTheme mirror
@@ -27,7 +27,7 @@
     <script type="text/javascript" src="js/pikaday.js"></script>
     <script type="text/javascript" src="js/Chart.min.js"></script>
     <script type="text/javascript" src="js/plugins.conf.js"></script>
-    <script type="text/javascript" src="js/timetracker.js?v=20260928a"></script>
+    <script type="text/javascript" src="js/timetracker.js?v=20260928b"></script>
     <script type="text/javascript" src="js/tauri-bridge.js"></script>
     <script type="text/javascript" src="js/aida-chat.js"></script>
 
@@ -185,10 +185,10 @@
         <div id="today-starred-section" class="today-section">
           <div class="today-section-header" onclick="todayView.toggleSection('starred')">
             <i class="fa fa-star"></i> Starred
+            <a href="#void" class="today-add-divider" onclick="todayView.addDivider(event)" title="Add a divider, then drag it into place">+ divider</a>
             <i class="fa fa-chevron-down today-section-caret"></i>
             <span id="today-starred-totals" class="today-section-totals"></span>
             <span id="today-selection-chip" class="today-selection-chip" style="display:none" onclick="todayView.chipClick(event)"></span>
-            <a href="#void" class="today-add-divider" onclick="todayView.addDivider(event)" title="Add a divider, then drag it into place">+ divider</a>
           </div>
           <div class="today-section-tasks" id="today-starred-tasks">
             <!-- Starred tasks rendered here -->

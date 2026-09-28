@@ -1035,16 +1035,21 @@ color: var(--ink);
   opacity: 0.4;
 }
 
-/* Today starred dividers */
+/* Today starred dividers (row height + bottom border match .today-task-item) */
 .today-divider {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 15px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--bg-inset);
   color: var(--ink-faint);
   font-size: 0.8em;
   -webkit-user-select: none;
   user-select: none;
+}
+
+.today-divider:last-child {
+  border-bottom: none;
 }
 
 .today-divider-line {
@@ -1069,7 +1074,6 @@ color: var(--ink);
 
 .today-divider-label-empty {
   color: var(--ink-ghost);
-  font-style: italic;
 }
 
 .today-divider-delete {
@@ -1117,7 +1121,6 @@ color: var(--ink);
 }
 
 .today-add-divider {
-  float: right;
   margin-left: 12px;
   font-size: 0.8em;
   font-weight: normal;
