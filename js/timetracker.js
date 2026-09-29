@@ -7717,6 +7717,19 @@ function resetDailyTasks() {
   for (var id in ttData.nodes) {
     var node = ttData.nodes[id];
     if (node.type !== 'task') continue;
+
+    // Star incomplete tasks due today or earlier so overdue work surfaces in
+    // the Today view. Deliberately not queued for sync: this runs at startup
+    // against pre-sync local data, and pushing the full node here could
+    // overwrite a completion made on another device with our stale status.
+    // Every device runs this sweep once per logical day, so stars converge
+    // per-device, and the star syncs with the next user-driven edit.
+    if (node.status !== 'completed' && node.starred !== '1' && node.due &&
+        moment(node.due).format('YYYY-MM-DD') <= logicalDate) {
+      node.starred = '1';
+      anyReset = true;
+    }
+
     if (node.status !== 'completed') continue;
     if (id === activeNodeId) continue;
     if (!taskHasTags(node, ['daily'])) continue;
